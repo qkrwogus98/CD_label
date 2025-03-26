@@ -1166,8 +1166,8 @@ class change_detection(QMainWindow):
                 base_filename = os.path.splitext(filename)[0]
                 
                 # 이미지 저장
-                binary_filename = os.path.join(binary_dir, f"{base_filename}.png")
-                semantic_filename = os.path.join(semantic_dir, f"{base_filename}.png")
+                binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
+                semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
                 
                 cv2.imwrite(binary_filename, binary_result)
                 cv2.imwrite(semantic_filename, semantic_result)
