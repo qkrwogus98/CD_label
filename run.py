@@ -703,6 +703,7 @@ class change_detection(QMainWindow):
         self.label_a = QLabel("변화 전(Before)")
         self.label_b = QLabel("변화 후(After)")
         self.save_btn = QPushButton("라벨 저장")
+        self.no_change_save_btn = QPushButton("변화 없음 라벨 저장")
         self.class_input_label = QLabel('클래스:')
         self.class_input = QLineEdit()
         self.class_input.setText('1')
@@ -725,6 +726,7 @@ class change_detection(QMainWindow):
         self.LV_A.clicked.connect(self.load_image_pair)
         self.LV_B.clicked.connect(self.load_image_pair)
         self.save_btn.clicked.connect(self.savepoint)
+        self.no_change_save_btn.clicked.connect(self.save_no_change)
         self.class_input.returnPressed.connect(self.update_class)
 
         # 레이아웃 설정
@@ -732,7 +734,11 @@ class change_detection(QMainWindow):
         H_TempBox = QHBoxLayout()
 
         # 도구 영역
-        V_Tool.addWidget(self.save_btn)
+        # V_Tool.addWidget(self.save_btn)
+        save_buttons_layout = QHBoxLayout()
+        save_buttons_layout.addWidget(self.save_btn)
+        save_buttons_layout.addWidget(self.no_change_save_btn)
+        V_Tool.addLayout(save_buttons_layout)
 
         # 클래스 버튼들 가로 배치
         H_ClassButtons = QHBoxLayout()
@@ -805,6 +811,57 @@ class change_detection(QMainWindow):
         self.showMaximized()
         self.set_list()
 
+    def save_no_change(self):
+        """
+        변화 없음 라벨을 저장하는 메서드
+        binary_cd 및 semantic_cd 폴더에 검정색 이미지를 저장합니다.
+        """
+        try:
+            if not self.selected_a_image_path or not self.selected_b_image_path:
+                QMessageBox.information(self, "경고", "저장할 이미지가 선택되지 않았습니다.")
+                return
+                
+            # 'binary_cd'와 'semantic_cd' 폴더 생성
+            current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            binary_dir = os.path.join(current_dir, 'binary_cd')
+            semantic_dir = os.path.join(current_dir, 'semantic_cd')
+            
+            if not os.path.exists(binary_dir):
+                os.makedirs(binary_dir)
+            if not os.path.exists(semantic_dir):
+                os.makedirs(semantic_dir)
+            
+            # before와 after 이미지 모두 처리
+            image_paths = [self.selected_a_image_path, self.selected_b_image_path]
+            
+            for image_path in image_paths:
+                # 원본 이미지 로드하여 크기 얻기
+                img_array = np.fromfile(image_path, np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                if img is None:
+                    print(f"이미지 로드 실패: {image_path}")
+                    continue
+                    
+                height, width = img.shape[:2]
+                
+                # 검은색 이미지 생성 (RGB 값을 0으로 설정)
+                black_image = np.zeros((height, width, 3), dtype=np.uint8)
+                
+                # 파일명 준비
+                (filepath, filename) = os.path.split(image_path)
+                base_filename = os.path.splitext(filename)[0]
+                
+                # 이미지 저장
+                binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
+                semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
+                
+                cv2.imwrite(binary_filename, black_image)
+                cv2.imwrite(semantic_filename, black_image)
+
+            QMessageBox.information(self, "저장", "변화 없음 라벨이 성공적으로 저장되었습니다.")
+        except Exception as e:
+            print(f"save_no_change 오류: {e}")
+            QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_W:
             # 자동 포인트 지정 기능 토글
