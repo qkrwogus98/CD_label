@@ -13,7 +13,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QAction, QMessageBox, QPushButton,
     QLabel, QLineEdit, QHBoxLayout, QVBoxLayout, QListView, QInputDialog,
-    QFileDialog, QMenu, QFontDialog, QSplitter, QGridLayout, QScrollArea
+    QFileDialog, QMenu, QFontDialog, QSplitter, QGridLayout, QScrollArea, QSlider
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 import webbrowser
@@ -211,7 +211,7 @@ class ImageBox(QWidget):
 
                 # 이미지 그리기
                 painter.drawPixmap(int(self.point.x()), int(self.point.y()), int(self.w), int(self.h), self.img)
-                
+
                 # 변화 감지 모드가 활성화된 상태에서 원본 이미지로 복원시 이미지 다시 로드
                 if hasattr(self.bigbox, 'change_detection_active') and not self.bigbox.change_detection_active and self.img and self.path:
                     if hasattr(self, 'need_reload') and self.need_reload:
@@ -631,6 +631,11 @@ class change_detection(QMainWindow):
         self.selected_a_image_path = None  # Before 이미지 경로
         self.selected_b_image_path = None  # After 이미지 경로
 
+        # 픽셀 변화 감지 관련 변수 추가
+        self.change_detection_active = False  # 픽셀 변화 감지 모드 활성화 여부
+        self.change_mask = None  # 변화 감지 마스크
+        self.change_threshold = 30  # 기본 임계값
+
         # 윈도우 크기 설정
         self.resize(int(1400*0.8), int(1100*0.8))
         # QTimer 설정: 단일 클릭과 더블 클릭 구분
@@ -720,11 +725,15 @@ class change_detection(QMainWindow):
         self.class_input.setText('1')
         self.class_input.setValidator(QIntValidator(1, 6))  # 클래스 1~6 허용
 
+        # 변화 감지 버튼 추가
+        self.detect_changes_btn = QPushButton("단순픽셀 변화감지")
+        self.detect_changes_btn.clicked.connect(self.detect_pixel_changes)
+        self.reset_images_btn = QPushButton("원본 이미지로 복원")
+        self.reset_images_btn.clicked.connect(self.reset_images)
+
         # 상태 변수들
         self.auto_switching = False
         self.auto_switch_interval = 1000  # 기본 간격(ms)
-        self.change_detection_active = False
-        self.change_mask = None
 
         # 추가된 상태 변수
         self.auto_adding_points = False
@@ -781,23 +790,70 @@ class change_detection(QMainWindow):
         self.tree_btn.clicked.connect(lambda: self.update_class_from_button(6))
         H_ClassButtons.addWidget(self.tree_btn)
 
-        # 변화 감지 버튼 추가
-        self.detect_changes_btn = QPushButton("단순픽셀 변화감지")
-        self.detect_changes_btn.clicked.connect(self.detect_pixel_changes)
-        self.reset_images_btn = QPushButton("원본 이미지로 복원")
-        self.reset_images_btn.clicked.connect(self.reset_images)
+        V_Tool.addLayout(H_ClassButtons)
 
-        # 버튼 레이아웃 추가
+        # 변화 감지 섹션 제목 추가
+        change_detection_label = QLabel("변화 감지 옵션")
+        change_detection_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        V_Tool.addWidget(change_detection_label)
+
+        # 임계값 슬라이더 추가
+        threshold_layout = QHBoxLayout()
+        threshold_label = QLabel("감지 민감도:")
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setMinimum(5)
+        self.threshold_slider.setMaximum(100)
+        self.threshold_slider.setValue(self.change_threshold)
+        self.threshold_slider.setToolTip("값이 낮을수록 작은 변화도 감지합니다.")
+        self.threshold_value_label = QLabel(f"{self.change_threshold}")
+
+        # 슬라이더 값 변경 시 라벨 업데이트
+        self.threshold_slider.valueChanged.connect(self.update_threshold_value)
+
+        # 레이아웃에 추가
+        threshold_layout.addWidget(threshold_label)
+        threshold_layout.addWidget(self.threshold_slider)
+        threshold_layout.addWidget(self.threshold_value_label)
+        V_Tool.addLayout(threshold_layout)
+
+        # 변화 감지 버튼 레이아웃
         change_detection_btns = QHBoxLayout()
         change_detection_btns.addWidget(self.detect_changes_btn)
         change_detection_btns.addWidget(self.reset_images_btn)
+        V_Tool.addLayout(change_detection_btns)
 
-        # UI에 레이아웃 추가 (V_Tool 레이아웃의 적절한 위치에):
-        # 클래스 버튼 추가 후 변화 감지 버튼 레이아웃 추가
-        V_Tool.addLayout(H_ClassButtons)
-        V_Tool.addLayout(change_detection_btns)  # 이 줄 추가
+        # 버튼 스타일 설정
+        self.detect_changes_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #a970ff;
+                color: white;
+                font-weight: bold;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #8a50e8;
+            }
+        """)
+        self.reset_images_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #777777;
+            }
+        """)
 
-        V_Tool.addLayout(H_ClassButtons)
+        # 툴팁 추가
+        self.detect_changes_btn.setToolTip("두 이미지 간의 픽셀 차이를 보라색으로 표시합니다. 양쪽에 동일한 변화 후 이미지가 보여집니다.")
+        self.reset_images_btn.setToolTip("변화 감지 모드를 해제하고 원래 이미지 상태로 돌아갑니다.")
+
+        # 버튼 크기 조정
+        self.detect_changes_btn.setMinimumHeight(30)
+        self.reset_images_btn.setMinimumHeight(30)
 
         V_Tool.addWidget(self.class_input_label)
         V_Tool.addWidget(self.class_input)
@@ -839,9 +895,18 @@ class change_detection(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)
         self.showMaximized()
         self.set_list()
+
+    def update_threshold_value(self, value):
+        """
+        임계값 슬라이더 값 변경 시 호출되는 함수
+        """
+        self.change_threshold = value
+        self.threshold_value_label.setText(f"{value}")
+
     def detect_pixel_changes(self):
         """
         두 이미지 간의 픽셀 변화를 감지하여 보라색으로 표시합니다.
+        변화 전/후 이미지 모두 변화 후 이미지를 보여주고, 변화된 부분만 보라색으로 강조합니다.
         """
         try:
             if not self.selected_a_image_path or not self.selected_b_image_path:
@@ -865,12 +930,10 @@ class change_detection(QMainWindow):
                 img_b = cv2.resize(img_b, (img_a.shape[1], img_a.shape[0]))
                 
             # 이미지 간의 차이 계산
-            # 절대값 차이 계산
             diff = cv2.absdiff(img_a, img_b)
             
             # 특정 임계값보다 큰 변화만 감지하기 위한 임계값 설정
-            # 이 값은 UI를 통해 조절 가능하게 할 수도 있습니다.
-            threshold = 30
+            threshold = self.change_threshold
             
             # 각 채널에서 임계값보다 큰 차이가 있는지 확인
             mask = np.any(diff > threshold, axis=2).astype(np.uint8) * 255
@@ -883,29 +946,31 @@ class change_detection(QMainWindow):
             # 변화가 감지된 마스크 저장
             self.change_mask = mask.copy()
             
-            # 변화 전 이미지에 보라색으로 변화 표시
-            img_a_with_changes = img_a.copy()
-            img_a_with_changes[mask > 0] = (180, 0, 180)  # 보라색 (BGR)
-            
             # 변화 후 이미지에 보라색으로 변화 표시
             img_b_with_changes = img_b.copy()
             img_b_with_changes[mask > 0] = (180, 0, 180)  # 보라색 (BGR)
             
             # 이미지를 화면에 표시하기 위해 RGB로 변환
-            img_a_with_changes = cv2.cvtColor(img_a_with_changes, cv2.COLOR_BGR2RGB)
             img_b_with_changes = cv2.cvtColor(img_b_with_changes, cv2.COLOR_BGR2RGB)
             
             # 이미지 크기 정보
-            height, width, channel = img_a_with_changes.shape
+            height, width, channel = img_b_with_changes.shape
             bytesPerLine = 3 * width
             
-            # 변화가 표시된 이미지를 QImage로 변환
-            qimg_a = QImage(img_a_with_changes, width, height, bytesPerLine, QImage.Format_RGB888)
-            qimg_b = QImage(img_b_with_changes, width, height, bytesPerLine, QImage.Format_RGB888)
+            # 변화가 표시된 이미지를 QImage로 변환 (양쪽 모두 같은 이미지)
+            qimg = QImage(img_b_with_changes, width, height, bytesPerLine, QImage.Format_RGB888)
             
-            # QImage를 QPixmap으로 변환하여 화면에 표시
-            self.before_box.img = QPixmap(qimg_a)
-            self.after_box.img = QPixmap(qimg_b)
+            # QImage를 QPixmap으로 변환하여 화면에 표시 (양쪽 모두 변화 후 이미지 + 변화 표시)
+            result_pixmap = QPixmap(qimg)
+            
+            # 원본 이미지 저장 (복원용)
+            if not hasattr(self, 'original_before_img'):
+                self.original_before_img = self.before_box.img.copy()
+                self.original_after_img = self.after_box.img.copy()
+                
+            # 양쪽 이미지 박스에 변화 감지 이미지 설정
+            self.before_box.img = result_pixmap
+            self.after_box.img = result_pixmap
             
             # 변화 감지 모드 활성화 플래그 설정
             self.change_detection_active = True
@@ -914,28 +979,41 @@ class change_detection(QMainWindow):
             self.before_box.repaint()
             self.after_box.repaint()
             
-            QMessageBox.information(self, "픽셀 변화 감지", "이미지 간 변화가 보라색으로 표시되었습니다.")
+            QMessageBox.information(self, "픽셀 변화 감지", "이미지 간 변화가 보라색으로 표시되었습니다. 양쪽 화면에 '변화 후' 이미지가 표시됩니다.")
             
         except Exception as e:
             print(f"detect_pixel_changes 오류: {e}")
             QMessageBox.warning(self, "오류", f"픽셀 변화 감지 실패: {e}")
-    
+
     def reset_images(self):
         """
         변화 감지 모드를 해제하고 원본 이미지로 돌아갑니다.
         """
         try:
             if hasattr(self, 'change_detection_active') and self.change_detection_active:
-                # 원본 이미지 경로에서 이미지 다시 로드
-                self.before_box.set_image()
-                self.after_box.set_image()
+                # 저장된 원본 이미지가 있으면 복원
+                if hasattr(self, 'original_before_img') and hasattr(self, 'original_after_img'):
+                    # 원본 이미지 복원
+                    self.before_box.img = self.original_before_img
+                    self.after_box.img = self.original_after_img
+                    
+                    # 변수 정리
+                    delattr(self, 'original_before_img')
+                    delattr(self, 'original_after_img')
+                else:
+                    # 저장된 원본 이미지가 없으면 경로에서 다시 로드
+                    self.before_box.set_image()
+                    self.after_box.set_image()
                 
                 # 변화 감지 모드 비활성화
                 self.change_detection_active = False
+                self.change_mask = None
                 
                 # 이미지 업데이트
                 self.before_box.repaint()
                 self.after_box.repaint()
+                
+                QMessageBox.information(self, "원본 복원", "원본 이미지로 복원되었습니다.")
                 
         except Exception as e:
             print(f"reset_images 오류: {e}")
@@ -1221,17 +1299,14 @@ class change_detection(QMainWindow):
                     self.before_box.poly_list = []  # 기존 라벨이 없을 경우 초기화
                     self.after_box.poly_list = self.before_box.poly_list  # 두 이미지가 동일한 폴리곤 리스트 공유
                     self.load_labels_from_file()
+
+                # 변화 감지 모드 초기화
                 self.change_detection_active = False
                 self.change_mask = None
+
                 self.before_box.repaint()
                 self.after_box.repaint()
                 self.set_list()
-
-                self.change_detection_active = False
-                self.change_mask = None
-
-                self.before_box.repaint()
-                self.after_box.repaint()
             else:
                 QMessageBox.warning(self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다.")
         except Exception as e:
@@ -1286,9 +1361,7 @@ class change_detection(QMainWindow):
             print(f"openimage 오류: {e}")
             QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
 
-    # savepoint 함수 수정 버전 (보라색 변화 감지 부분을 제외하고 저장)
     def savepoint(self):
-
         try:
             if not self.image_labels:
                 QMessageBox.information(self, "경고", "저장할 레이블이 없습니다.")
