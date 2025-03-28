@@ -1019,7 +1019,7 @@ class change_detection(QMainWindow):
             print(f"reset_images 오류: {e}")
             QMessageBox.warning(self, "오류", f"이미지 초기화 실패: {e}")
 
-    def save_no_change(self):
+
         """
         변화 없음 라벨을 저장하는 메서드
         binary_cd 및 semantic_cd 폴더에 검정색 이미지를 저장합니다.
@@ -1082,7 +1082,58 @@ class change_detection(QMainWindow):
         except Exception as e:
             print(f"save_no_change 오류: {e}")
             QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
+    def save_no_change(self):
+        """
+        변화 없음 라벨을 저장하는 메서드
+        binary_cd 및 semantic_cd 폴더에 검정색 이미지를 저장합니다.
+        """
+        try:
+            if not self.selected_a_image_path or not self.selected_b_image_path:
+                QMessageBox.information(self, "경고", "저장할 이미지가 선택되지 않았습니다.")
+                return
+                
+            # 'binary_cd'와 'semantic_cd' 폴더 생성
+            current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            binary_dir = os.path.join(current_dir, 'binary_cd')
+            semantic_dir = os.path.join(current_dir, 'semantic_cd')
+            
+            if not os.path.exists(binary_dir):
+                os.makedirs(binary_dir)
+            if not os.path.exists(semantic_dir):
+                os.makedirs(semantic_dir)
+            
+            # before와 after 이미지 모두 처리
+            image_paths = [self.selected_a_image_path, self.selected_b_image_path]
+            
+            for image_path in image_paths:
+                # 원본 이미지 로드하여 크기 얻기
+                img_array = np.fromfile(image_path, np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                if img is None:
+                    print(f"이미지 로드 실패: {image_path}")
+                    continue
+                    
+                height, width = img.shape[:2]
+                
+                # 검은색 이미지 생성 (RGB 값을 0으로 설정)
+                black_image = np.zeros((height, width, 3), dtype=np.uint8)
+                
+                # 파일명 준비
+                (filepath, filename) = os.path.split(image_path)
+                base_filename = os.path.splitext(filename)[0]
+                
+                # 이미지 저장
+                binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
+                semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
+                
+                cv2.imwrite(binary_filename, black_image)
+                cv2.imwrite(semantic_filename, black_image)
 
+            QMessageBox.information(self, "저장", "변화 없음 라벨이 성공적으로 저장되었습니다.")
+        except Exception as e:
+            print(f"save_no_change 오류: {e}")
+            QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
+            
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_W:
             # 자동 포인트 지정 기능 토글
@@ -1366,7 +1417,7 @@ class change_detection(QMainWindow):
             if not self.image_labels:
                 QMessageBox.information(self, "경고", "저장할 레이블이 없습니다.")
                 return
-                
+                    
             # 'binary_cd'와 'semantic_cd' 폴더 생성
             current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             binary_dir = os.path.join(current_dir, 'binary_cd')
@@ -1376,7 +1427,7 @@ class change_detection(QMainWindow):
                 os.makedirs(binary_dir)
             if not os.path.exists(semantic_dir):
                 os.makedirs(semantic_dir)
-                
+                    
             for image_path in self.image_labels.keys():
                 poly_list = self.image_labels.get(image_path, [])
                 if not poly_list:
@@ -1436,7 +1487,8 @@ class change_detection(QMainWindow):
                     
                     cv2.fillPoly(semantic_mask, polygon_points, color)
                 
-                # 변화 감지 마스크가 있으면 폴리곤 마스크에서 제외 (교차 부분 제거)
+                # 변화 감지 마스크 생성 - 폴리곤 외부 영역에만 적용
+                change_mask_outside_polygons = None
                 if hasattr(self, 'change_mask') and self.change_mask is not None:
                     # 변화 마스크 크기 조정
                     if self.change_mask.shape[:2] != (height, width):
@@ -1444,26 +1496,19 @@ class change_detection(QMainWindow):
                     else:
                         change_mask_resized = self.change_mask
                     
-                    # 변화 감지 영역은 저장하지 않도록 마스크에서 제외
-                    binary_mask[change_mask_resized > 0] = 0
+                    # 폴리곤 외부 영역에만 변화 감지 마스크 적용
+                    change_mask_outside_polygons = change_mask_resized.copy()
+                    change_mask_outside_polygons[binary_mask == 255] = 0  # 폴리곤 내부는 제외
                 
                 # 바이너리 이미지 저장 (폴리곤 영역만 흰색, 나머지는 검은색)
                 binary_result[binary_mask == 255] = (255, 255, 255)  # 흰색으로 표시
                 
                 # 시맨틱 이미지 저장 (폴리곤 영역만 컬러, 나머지는 검은색)
-                mask = (semantic_mask > 0).any(axis=2)
+                semantic_result = np.zeros_like(semantic_mask)  # 결과를 0으로 초기화
                 
-                # 변화 감지 마스크가 있으면 시맨틱 마스크에서도 제외
-                if hasattr(self, 'change_mask') and self.change_mask is not None:
-                    if self.change_mask.shape[:2] != (height, width):
-                        change_mask_resized = cv2.resize(self.change_mask, (width, height))
-                    else:
-                        change_mask_resized = self.change_mask
-                    
-                    # 변화 감지 영역을 마스크에서 제외
-                    mask[change_mask_resized > 0] = False
-                
-                semantic_result[mask] = semantic_mask[mask]
+                # 폴리곤 영역을 그대로 추가
+                mask_polygons = (semantic_mask > 0).any(axis=2)
+                semantic_result[mask_polygons] = semantic_mask[mask_polygons]
                 
                 # 파일명 준비
                 (filepath, filename) = os.path.split(image_path)
