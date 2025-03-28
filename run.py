@@ -174,6 +174,11 @@ class ImageBox(QWidget):
             bytesPerLine = 3 * width
             qimg = QImage(img, width, height, bytesPerLine, QImage.Format_RGB888)
             self.img = QPixmap(qimg)
+            
+            # 변화 감지 모드가 활성화되어 있었다면 플래그 설정
+            if hasattr(self.bigbox, 'change_detection_active') and self.bigbox.change_detection_active:
+                self.bigbox.change_detection_active = False
+                
         except Exception as e:
             print(f"이미지 로드 오류: {e}")
             self.img = QPixmap(self.path)
@@ -206,6 +211,12 @@ class ImageBox(QWidget):
 
                 # 이미지 그리기
                 painter.drawPixmap(int(self.point.x()), int(self.point.y()), int(self.w), int(self.h), self.img)
+                
+                # 변화 감지 모드가 활성화된 상태에서 원본 이미지로 복원시 이미지 다시 로드
+                if hasattr(self.bigbox, 'change_detection_active') and not self.bigbox.change_detection_active and self.img and self.path:
+                    if hasattr(self, 'need_reload') and self.need_reload:
+                        self.set_image()
+                        self.need_reload = False
 
                 # 완성된 폴리곤 그리기
                 for index, poly_dict in enumerate(self.poly_list):
@@ -712,6 +723,8 @@ class change_detection(QMainWindow):
         # 상태 변수들
         self.auto_switching = False
         self.auto_switch_interval = 1000  # 기본 간격(ms)
+        self.change_detection_active = False
+        self.change_mask = None
 
         # 추가된 상태 변수
         self.auto_adding_points = False
@@ -768,6 +781,22 @@ class change_detection(QMainWindow):
         self.tree_btn.clicked.connect(lambda: self.update_class_from_button(6))
         H_ClassButtons.addWidget(self.tree_btn)
 
+        # 변화 감지 버튼 추가
+        self.detect_changes_btn = QPushButton("단순픽셀 변화감지")
+        self.detect_changes_btn.clicked.connect(self.detect_pixel_changes)
+        self.reset_images_btn = QPushButton("원본 이미지로 복원")
+        self.reset_images_btn.clicked.connect(self.reset_images)
+
+        # 버튼 레이아웃 추가
+        change_detection_btns = QHBoxLayout()
+        change_detection_btns.addWidget(self.detect_changes_btn)
+        change_detection_btns.addWidget(self.reset_images_btn)
+
+        # UI에 레이아웃 추가 (V_Tool 레이아웃의 적절한 위치에):
+        # 클래스 버튼 추가 후 변화 감지 버튼 레이아웃 추가
+        V_Tool.addLayout(H_ClassButtons)
+        V_Tool.addLayout(change_detection_btns)  # 이 줄 추가
+
         V_Tool.addLayout(H_ClassButtons)
 
         V_Tool.addWidget(self.class_input_label)
@@ -810,11 +839,113 @@ class change_detection(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)
         self.showMaximized()
         self.set_list()
+    def detect_pixel_changes(self):
+        """
+        두 이미지 간의 픽셀 변화를 감지하여 보라색으로 표시합니다.
+        """
+        try:
+            if not self.selected_a_image_path or not self.selected_b_image_path:
+                QMessageBox.information(self, "경고", "이미지가 선택되지 않았습니다.")
+                return
+                
+            # 변화 전 이미지 로드
+            img_array_a = np.fromfile(self.selected_a_image_path, np.uint8)
+            img_a = cv2.imdecode(img_array_a, cv2.IMREAD_COLOR)
+            
+            # 변화 후 이미지 로드
+            img_array_b = np.fromfile(self.selected_b_image_path, np.uint8)
+            img_b = cv2.imdecode(img_array_b, cv2.IMREAD_COLOR)
+            
+            if img_a is None or img_b is None:
+                QMessageBox.warning(self, "오류", "이미지 로드에 실패했습니다.")
+                return
+                
+            # 이미지 크기가 다른 경우 크기 맞추기
+            if img_a.shape != img_b.shape:
+                img_b = cv2.resize(img_b, (img_a.shape[1], img_a.shape[0]))
+                
+            # 이미지 간의 차이 계산
+            # 절대값 차이 계산
+            diff = cv2.absdiff(img_a, img_b)
+            
+            # 특정 임계값보다 큰 변화만 감지하기 위한 임계값 설정
+            # 이 값은 UI를 통해 조절 가능하게 할 수도 있습니다.
+            threshold = 30
+            
+            # 각 채널에서 임계값보다 큰 차이가 있는지 확인
+            mask = np.any(diff > threshold, axis=2).astype(np.uint8) * 255
+            
+            # 노이즈 제거를 위한 모폴로지 연산 적용
+            kernel = np.ones((3, 3), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            
+            # 변화가 감지된 마스크 저장
+            self.change_mask = mask.copy()
+            
+            # 변화 전 이미지에 보라색으로 변화 표시
+            img_a_with_changes = img_a.copy()
+            img_a_with_changes[mask > 0] = (180, 0, 180)  # 보라색 (BGR)
+            
+            # 변화 후 이미지에 보라색으로 변화 표시
+            img_b_with_changes = img_b.copy()
+            img_b_with_changes[mask > 0] = (180, 0, 180)  # 보라색 (BGR)
+            
+            # 이미지를 화면에 표시하기 위해 RGB로 변환
+            img_a_with_changes = cv2.cvtColor(img_a_with_changes, cv2.COLOR_BGR2RGB)
+            img_b_with_changes = cv2.cvtColor(img_b_with_changes, cv2.COLOR_BGR2RGB)
+            
+            # 이미지 크기 정보
+            height, width, channel = img_a_with_changes.shape
+            bytesPerLine = 3 * width
+            
+            # 변화가 표시된 이미지를 QImage로 변환
+            qimg_a = QImage(img_a_with_changes, width, height, bytesPerLine, QImage.Format_RGB888)
+            qimg_b = QImage(img_b_with_changes, width, height, bytesPerLine, QImage.Format_RGB888)
+            
+            # QImage를 QPixmap으로 변환하여 화면에 표시
+            self.before_box.img = QPixmap(qimg_a)
+            self.after_box.img = QPixmap(qimg_b)
+            
+            # 변화 감지 모드 활성화 플래그 설정
+            self.change_detection_active = True
+            
+            # 이미지 업데이트
+            self.before_box.repaint()
+            self.after_box.repaint()
+            
+            QMessageBox.information(self, "픽셀 변화 감지", "이미지 간 변화가 보라색으로 표시되었습니다.")
+            
+        except Exception as e:
+            print(f"detect_pixel_changes 오류: {e}")
+            QMessageBox.warning(self, "오류", f"픽셀 변화 감지 실패: {e}")
+    
+    def reset_images(self):
+        """
+        변화 감지 모드를 해제하고 원본 이미지로 돌아갑니다.
+        """
+        try:
+            if hasattr(self, 'change_detection_active') and self.change_detection_active:
+                # 원본 이미지 경로에서 이미지 다시 로드
+                self.before_box.set_image()
+                self.after_box.set_image()
+                
+                # 변화 감지 모드 비활성화
+                self.change_detection_active = False
+                
+                # 이미지 업데이트
+                self.before_box.repaint()
+                self.after_box.repaint()
+                
+        except Exception as e:
+            print(f"reset_images 오류: {e}")
+            QMessageBox.warning(self, "오류", f"이미지 초기화 실패: {e}")
 
     def save_no_change(self):
         """
         변화 없음 라벨을 저장하는 메서드
         binary_cd 및 semantic_cd 폴더에 검정색 이미지를 저장합니다.
+        변화 감지 마스크가 있는 경우 해당 영역은 제외합니다.
         """
         try:
             if not self.selected_a_image_path or not self.selected_b_image_path:
@@ -847,6 +978,17 @@ class change_detection(QMainWindow):
                 # 검은색 이미지 생성 (RGB 값을 0으로 설정)
                 black_image = np.zeros((height, width, 3), dtype=np.uint8)
                 
+                # 변화 감지 마스크가 있는 경우 해당 영역 제외
+                if hasattr(self, 'change_mask') and self.change_mask is not None:
+                    # 변화 마스크 크기 조정
+                    if self.change_mask.shape[:2] != (height, width):
+                        change_mask_resized = cv2.resize(self.change_mask, (width, height))
+                    else:
+                        change_mask_resized = self.change_mask
+                    
+                    # 변화 감지 영역은 저장하지 않음 (이미 검은색이므로 추가 처리 필요 없음)
+                    # 필요하다면 여기에 특별한 표시 코드를 추가할 수 있음
+                
                 # 파일명 준비
                 (filepath, filename) = os.path.split(image_path)
                 base_filename = os.path.splitext(filename)[0]
@@ -862,6 +1004,7 @@ class change_detection(QMainWindow):
         except Exception as e:
             print(f"save_no_change 오류: {e}")
             QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_W:
             # 자동 포인트 지정 기능 토글
@@ -1078,10 +1221,17 @@ class change_detection(QMainWindow):
                     self.before_box.poly_list = []  # 기존 라벨이 없을 경우 초기화
                     self.after_box.poly_list = self.before_box.poly_list  # 두 이미지가 동일한 폴리곤 리스트 공유
                     self.load_labels_from_file()
-
+                self.change_detection_active = False
+                self.change_mask = None
                 self.before_box.repaint()
                 self.after_box.repaint()
                 self.set_list()
+
+                self.change_detection_active = False
+                self.change_mask = None
+
+                self.before_box.repaint()
+                self.after_box.repaint()
             else:
                 QMessageBox.warning(self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다.")
         except Exception as e:
@@ -1136,7 +1286,9 @@ class change_detection(QMainWindow):
             print(f"openimage 오류: {e}")
             QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
 
+    # savepoint 함수 수정 버전 (보라색 변화 감지 부분을 제외하고 저장)
     def savepoint(self):
+
         try:
             if not self.image_labels:
                 QMessageBox.information(self, "경고", "저장할 레이블이 없습니다.")
@@ -1211,11 +1363,33 @@ class change_detection(QMainWindow):
                     
                     cv2.fillPoly(semantic_mask, polygon_points, color)
                 
+                # 변화 감지 마스크가 있으면 폴리곤 마스크에서 제외 (교차 부분 제거)
+                if hasattr(self, 'change_mask') and self.change_mask is not None:
+                    # 변화 마스크 크기 조정
+                    if self.change_mask.shape[:2] != (height, width):
+                        change_mask_resized = cv2.resize(self.change_mask, (width, height))
+                    else:
+                        change_mask_resized = self.change_mask
+                    
+                    # 변화 감지 영역은 저장하지 않도록 마스크에서 제외
+                    binary_mask[change_mask_resized > 0] = 0
+                
                 # 바이너리 이미지 저장 (폴리곤 영역만 흰색, 나머지는 검은색)
                 binary_result[binary_mask == 255] = (255, 255, 255)  # 흰색으로 표시
                 
                 # 시맨틱 이미지 저장 (폴리곤 영역만 컬러, 나머지는 검은색)
                 mask = (semantic_mask > 0).any(axis=2)
+                
+                # 변화 감지 마스크가 있으면 시맨틱 마스크에서도 제외
+                if hasattr(self, 'change_mask') and self.change_mask is not None:
+                    if self.change_mask.shape[:2] != (height, width):
+                        change_mask_resized = cv2.resize(self.change_mask, (width, height))
+                    else:
+                        change_mask_resized = self.change_mask
+                    
+                    # 변화 감지 영역을 마스크에서 제외
+                    mask[change_mask_resized > 0] = False
+                
                 semantic_result[mask] = semantic_mask[mask]
                 
                 # 파일명 준비
