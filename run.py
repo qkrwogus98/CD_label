@@ -36,6 +36,15 @@ import webbrowser
 from PyQt5.QtWidgets import QInputDialog
 from PyQt5.QtCore import QTimer
 from collections import defaultdict
+import re
+
+
+def natural_key(filename):
+    """숫자가 포함된 문자열을 숫자 기준으로 정렬"""
+    return [
+        int(text) if text.isdigit() else text.lower()
+        for text in re.split("([0-9]+)", filename)
+    ]
 
 
 def save_label_statistics(image_labels, output_dir):
@@ -1466,13 +1475,12 @@ class change_detection(QMainWindow):
 
             # 이미지 파일 확장자 필터링
             image_extensions = (".png", ".jpg", ".jpeg", ".bmp")
-            image_files = sorted(
-                [
-                    os.path.join(folder_path, f)
-                    for f in os.listdir(folder_path)
-                    if f.lower().endswith(image_extensions)
-                ]
-            )
+            image_files = [
+                os.path.join(folder_path, f)
+                for f in os.listdir(folder_path)
+                if f.lower().endswith(image_extensions)
+            ]
+            image_files.sort(key=lambda x: natural_key(os.path.basename(x)))
 
             if flag == "A":
                 self.temp_listA = image_files
@@ -1494,112 +1502,6 @@ class change_detection(QMainWindow):
                     self.after_box.path = self.selected_b_image_path
                     self.before_box.set_image()
                     self.after_box.set_image()
-                    if self.before_box.path in self.image_labels:
-                        self.before_box.poly_list = self.image_labels[
-                            self.before_box.path
-                        ].copy()
-                        self.after_box.poly_list = self.before_box.poly_list
-                    else:
-                        self.before_box.poly_list = []
-                        self.after_box.poly_list = self.before_box.poly_list
-                        self.load_labels_from_file()
-                    self.before_box.repaint()
-                    self.after_box.repaint()
-                    self.set_list()
-        except Exception as e:
-            print(f"openimage 오류: {e}")
-            QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
-        try:
-            if self.before_box.path:
-                self.image_labels[self.before_box.path] = (
-                    self.before_box.poly_list.copy()
-                )
-            self.undo_stack.clear()
-            self.redo_stack.clear()
-
-            # 폴더 선택
-            folder_path = QFileDialog.getExistingDirectory(self, "폴더 선택", "")
-            if not folder_path:
-                return
-
-            # 이미지 파일 확장자 필터링
-            image_extensions = (".png", ".jpg", ".jpeg", ".bmp")
-            image_files = sorted(
-                [
-                    os.path.join(folder_path, f)
-                    for f in os.listdir(folder_path)
-                    if f.lower().endswith(image_extensions)
-                ]
-            )
-
-            if flag == "A":
-                self.temp_listA = image_files
-            else:
-                self.temp_listB = image_files
-
-            self.set_list()
-
-            # 변화 전/후 이미지 수 확인 후 첫 쌍 불러오기
-            if self.temp_listA and self.temp_listB:
-                if len(self.temp_listA) != len(self.temp_listB):
-                    QMessageBox.warning(
-                        self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다."
-                    )
-                else:
-                    self.selected_a_image_path = self.temp_listA[0]
-                    self.selected_b_image_path = self.temp_listB[0]
-                    self.before_box.path = self.selected_a_image_path
-                    self.after_box.path = self.selected_b_image_path
-                    self.before_box.set_image()
-                    self.after_box.set_image()
-                    if self.before_box.path in self.image_labels:
-                        self.before_box.poly_list = self.image_labels[
-                            self.before_box.path
-                        ].copy()
-                        self.after_box.poly_list = self.before_box.poly_list
-                    else:
-                        self.before_box.poly_list = []
-                        self.after_box.poly_list = self.before_box.poly_list
-                        self.load_labels_from_file()
-                    self.before_box.repaint()
-                    self.after_box.repaint()
-                    self.set_list()
-        except Exception as e:
-            print(f"openimage 오류: {e}")
-            QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
-
-        try:
-            # 현재 라벨 저장
-            if self.before_box.path:
-                self.image_labels[self.before_box.path] = self.before_box.poly_list.copy()
-            # undo 및 redo 스택 초기화
-            self.undo_stack.clear()
-            self.redo_stack.clear()
-            imgNames, _ = QFileDialog.getOpenFileNames(self, "파일 선택", "",
-                                                      "이미지 파일 (*.png *.jpg *.bmp);;모든 파일 (*)")
-            if flag == "A":
-                self.temp_listA = imgNames
-            else:
-                self.temp_listB = imgNames
-            self.set_list()
-            # 두 리스트 모두 로드되었을 때
-            if self.temp_listA and self.temp_listB:
-                if len(self.temp_listA) != len(self.temp_listB):
-                    QMessageBox.warning(self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다.")
-                else:
-                    # 첫 번째 이미지 쌍 로드
-                    self.selected_a_image_path = self.temp_listA[0]
-                    self.selected_b_image_path = self.temp_listB[0]
-
-                    # 변화 전 이미지 설정
-                    self.before_box.path = self.selected_a_image_path
-                    self.before_box.set_image()
-
-                    # 변화 후 이미지 설정
-                    self.after_box.path = self.selected_b_image_path
-                    self.after_box.set_image()
-
-                    # 라벨 로드
                     if self.before_box.path in self.image_labels:
                         self.before_box.poly_list = self.image_labels[self.before_box.path].copy()
                         self.after_box.poly_list = self.before_box.poly_list
@@ -1607,7 +1509,6 @@ class change_detection(QMainWindow):
                         self.before_box.poly_list = []
                         self.after_box.poly_list = self.before_box.poly_list
                         self.load_labels_from_file()
-
                     self.before_box.repaint()
                     self.after_box.repaint()
                     self.set_list()
