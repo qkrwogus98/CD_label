@@ -11,9 +11,25 @@ from PyQt5.QtGui import (
     QPainter, QPen, QColor, QBrush, QPolygon, QPixmap, QIntValidator, QCursor, QMouseEvent, QFont, QImage
 )
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QAction, QMessageBox, QPushButton,
-    QLabel, QLineEdit, QHBoxLayout, QVBoxLayout, QListView, QInputDialog,
-    QFileDialog, QMenu, QFontDialog, QSplitter, QGridLayout, QScrollArea
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QAction,
+    QMessageBox,
+    QPushButton,
+    QLabel,
+    QLineEdit,
+    QHBoxLayout,
+    QVBoxLayout,
+    QListView,
+    QInputDialog,
+    QFileDialog,
+    QMenu,
+    QFontDialog,
+    QSplitter,
+    QGridLayout,
+    QScrollArea,
+    QSlider,
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 import webbrowser
@@ -35,7 +51,7 @@ class ImageBox(QWidget):
 
         # 이미지가 변화 후 이미지인지 표시하는 플래그
         self.is_after = is_after
-        
+
         # 라벨 리스트 (두 이미지 간 공유)
         self.poly_list = []
 
@@ -70,7 +86,7 @@ class ImageBox(QWidget):
 
         # 라인 언두/리두 스택
         self.line_redo_stack = []
-        
+
         # 페어 이미지 박스 참조 (동기화용)
         self.pair_box = None
 
@@ -174,6 +190,14 @@ class ImageBox(QWidget):
             bytesPerLine = 3 * width
             qimg = QImage(img, width, height, bytesPerLine, QImage.Format_RGB888)
             self.img = QPixmap(qimg)
+
+            # 변화 감지 모드가 활성화되어 있었다면 플래그 설정
+            if (
+                hasattr(self.bigbox, "change_detection_active")
+                and self.bigbox.change_detection_active
+            ):
+                self.bigbox.change_detection_active = False
+
         except Exception as e:
             print(f"이미지 로드 오류: {e}")
             self.img = QPixmap(self.path)
@@ -206,6 +230,17 @@ class ImageBox(QWidget):
 
                 # 이미지 그리기
                 painter.drawPixmap(int(self.point.x()), int(self.point.y()), int(self.w), int(self.h), self.img)
+
+                # 변화 감지 모드가 활성화된 상태에서 원본 이미지로 복원시 이미지 다시 로드
+                if (
+                    hasattr(self.bigbox, "change_detection_active")
+                    and not self.bigbox.change_detection_active
+                    and self.img
+                    and self.path
+                ):
+                    if hasattr(self, "need_reload") and self.need_reload:
+                        self.set_image()
+                        self.need_reload = False
 
                 # 완성된 폴리곤 그리기
                 for index, poly_dict in enumerate(self.poly_list):
@@ -329,10 +364,10 @@ class ImageBox(QWidget):
                 self.start_pos = e.pos()
                 self.repaint()
                 self.is_moving = True
-                
+
                 # 이미지 크기 변경 가능성을 고려하여 setFixedSize 호출
                 self.setFixedSize(int(self.w), int(self.h))
-                
+
                 # 페어 이미지 동기화
                 if self.pair_box and not self.pair_box.is_left_clicked:
                     dx = self.point.x() - old_x
@@ -413,7 +448,7 @@ class ImageBox(QWidget):
                         self.bigbox.image_labels[self.path] = self.poly_list.copy()
                         # redo 스택 비우기
                         self.bigbox.redo_stack.clear()
-                        
+
                         # 페어 이미지도 업데이트
                         if self.pair_box:
                             self.pair_box.repaint()
@@ -473,60 +508,60 @@ class ImageBox(QWidget):
             angleY = angle.y()
             zoom_factor = 1.1
             old_scale = self.scale
-            
+
             if angleY > 0:
                 # 줌 인
                 self.scale *= zoom_factor
             else:
                 # 줌 아웃
                 self.scale /= zoom_factor
-                
+
             # 이미지 크기 조정
             self.w = self.img.width() * self.scale
             self.h = self.img.height() * self.scale
-            
+
             # 마우스 포인터 위치를 중심으로 확대/축소
             cursor_pos = event.pos()
             dx = cursor_pos.x() - self.point.x()
             dy = cursor_pos.y() - self.point.y()
-            
+
             # 새로운 좌표 계산
             new_dx = dx * (self.scale / old_scale)
             new_dy = dy * (self.scale / old_scale)
-            
+
             # 이미지 위치 조정 (float -> int 변환)
             self.point = QPoint(int(cursor_pos.x() - new_dx), int(cursor_pos.y() - new_dy))
-            
+
             # 위젯 크기 조정
             self.setFixedSize(int(self.w), int(self.h))
-            
+
             self.repaint()
-            
+
             # 페어 이미지 동기화
             if self.pair_box:
                 # 같은 스케일 적용
                 self.pair_box.scale = self.scale
                 self.pair_box.w = self.pair_box.img.width() * self.pair_box.scale
                 self.pair_box.h = self.pair_box.img.height() * self.pair_box.scale
-                
+
                 # 상대적인 위치 조정을 위한 비율 계산
                 if self.w > 0 and self.pair_box.w > 0:
                     x_ratio = self.point.x() / self.w
                     y_ratio = self.point.y() / self.h
-                    
+
                     # 같은 비율로 위치 적용
                     pair_x = int(x_ratio * self.pair_box.w)
                     pair_y = int(y_ratio * self.pair_box.h)
-                    
+
                     self.pair_box.point = QPoint(pair_x, pair_y)
                 else:
                     # 페어 이미지 위치 직접 동기화
                     self.pair_box.point = QPoint(self.point)
-                
+
                 # 페어 이미지 위젯 크기 업데이트
                 self.pair_box.setFixedSize(int(self.pair_box.w), int(self.pair_box.h))
                 self.pair_box.repaint()
-                
+
         except Exception as e:
             print(f"wheelEvent 오류: {e}")
 
@@ -620,6 +655,11 @@ class change_detection(QMainWindow):
         self.selected_a_image_path = None  # Before 이미지 경로
         self.selected_b_image_path = None  # After 이미지 경로
 
+        # 픽셀 변화 감지 관련 변수 추가
+        self.change_detection_active = False  # 픽셀 변화 감지 모드 활성화 여부
+        self.change_mask = None  # 변화 감지 마스크
+        self.change_threshold = 30  # 기본 임계값
+
         # 윈도우 크기 설정
         self.resize(int(1400*0.8), int(1100*0.8))
         # QTimer 설정: 단일 클릭과 더블 클릭 구분
@@ -639,20 +679,20 @@ class change_detection(QMainWindow):
 
         bar = self.menuBar()
         file = bar.addMenu("파일")
-      
+
         file.addActions([importAct, saveAct, undoAct, redoAct, exitAct])
 
         # 웹 브라우저에서 URL을 여는 QAction
         url_act = QAction("URL : https://github.com/chartgod/Changedetection_labelingtool", self)
         url_act.triggered.connect(lambda: webbrowser.open("https://github.com/chartgod/Changedetection_labelingtool"))
-        
+
         # 메인 레이아웃 설정
         main_layout = QHBoxLayout()
-        
+
         # 동기화 비교 뷰 설정
         self.comparison_widget = QWidget()
         comparison_layout = QHBoxLayout(self.comparison_widget)
-        
+
         # 변화 전 이미지 (before)
         self.before_scroll = SynchronizedScrollArea()
         self.before_box = ImageBox(is_after=False)
@@ -660,7 +700,7 @@ class change_detection(QMainWindow):
         self.before_box.bigbox = self
         self.before_scroll.setWidget(self.before_box)
         self.before_scroll.isScrolling = False
-        
+
         # 변화 후 이미지 (after)
         self.after_scroll = SynchronizedScrollArea()
         self.after_box = ImageBox(is_after=True)
@@ -668,17 +708,17 @@ class change_detection(QMainWindow):
         self.after_box.bigbox = self
         self.after_scroll.setWidget(self.after_box)
         self.after_scroll.isScrolling = False
-        
+
         # 스크롤 영역 동기화 설정
         self.before_scroll.set_pair_scroll(self.after_scroll)
         self.after_scroll.set_pair_scroll(self.before_scroll)
         self.before_scroll.isScrolling = False
         self.after_scroll.isScrolling = False
-        
+
         # 이미지 박스 동기화 설정
         self.before_box.set_pair_box(self.after_box)
         self.after_box.set_pair_box(self.before_box)
-        
+
         # 비교 뷰에 이미지 추가
         comparison_layout.addWidget(self.before_scroll)
         comparison_layout.addWidget(self.after_scroll)
@@ -708,6 +748,12 @@ class change_detection(QMainWindow):
         self.class_input = QLineEdit()
         self.class_input.setText('1')
         self.class_input.setValidator(QIntValidator(1, 6))  # 클래스 1~6 허용
+
+        # 변화 감지 버튼 추가
+        self.detect_changes_btn = QPushButton("단순픽셀 변화감지")
+        self.detect_changes_btn.clicked.connect(self.detect_pixel_changes)
+        self.reset_images_btn = QPushButton("원본 이미지로 복원")
+        self.reset_images_btn.clicked.connect(self.reset_images)
 
         # 상태 변수들
         self.auto_switching = False
@@ -747,28 +793,99 @@ class change_detection(QMainWindow):
         self.person_btn = QPushButton("사람")
         self.person_btn.clicked.connect(lambda: self.update_class_from_button(1))
         H_ClassButtons.addWidget(self.person_btn)
-        
+
         self.stone_btn = QPushButton("돌")
         self.stone_btn.clicked.connect(lambda: self.update_class_from_button(2))
         H_ClassButtons.addWidget(self.stone_btn)
-        
+
         self.soil_btn = QPushButton("흙")
         self.soil_btn.clicked.connect(lambda: self.update_class_from_button(3))
         H_ClassButtons.addWidget(self.soil_btn)
-        
+
         self.water_btn = QPushButton("물")
         self.water_btn.clicked.connect(lambda: self.update_class_from_button(4))
         H_ClassButtons.addWidget(self.water_btn)
-        
+
         self.fire_btn = QPushButton("불")
         self.fire_btn.clicked.connect(lambda: self.update_class_from_button(5))
         H_ClassButtons.addWidget(self.fire_btn)
-        
+
         self.tree_btn = QPushButton("나무")
         self.tree_btn.clicked.connect(lambda: self.update_class_from_button(6))
         H_ClassButtons.addWidget(self.tree_btn)
 
         V_Tool.addLayout(H_ClassButtons)
+
+        # 변화 감지 섹션 제목 추가
+        change_detection_label = QLabel("변화 감지 옵션")
+        change_detection_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        V_Tool.addWidget(change_detection_label)
+
+        # 임계값 슬라이더 추가
+        threshold_layout = QHBoxLayout()
+        threshold_label = QLabel("감지 민감도:")
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setMinimum(5)
+        self.threshold_slider.setMaximum(100)
+        self.threshold_slider.setValue(self.change_threshold)
+        self.threshold_slider.setToolTip("값이 낮을수록 작은 변화도 감지합니다.")
+        self.threshold_value_label = QLabel(f"{self.change_threshold}")
+
+        # 슬라이더 값 변경 시 라벨 업데이트
+        self.threshold_slider.valueChanged.connect(self.update_threshold_value)
+
+        # 레이아웃에 추가
+        threshold_layout.addWidget(threshold_label)
+        threshold_layout.addWidget(self.threshold_slider)
+        threshold_layout.addWidget(self.threshold_value_label)
+        V_Tool.addLayout(threshold_layout)
+
+        # 변화 감지 버튼 레이아웃
+        change_detection_btns = QHBoxLayout()
+        change_detection_btns.addWidget(self.detect_changes_btn)
+        change_detection_btns.addWidget(self.reset_images_btn)
+        V_Tool.addLayout(change_detection_btns)
+
+        # 버튼 스타일 설정
+        self.detect_changes_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #a970ff;
+                color: white;
+                font-weight: bold;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #8a50e8;
+            }
+        """
+        )
+        self.reset_images_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #555555;
+                color: white;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #777777;
+            }
+        """
+        )
+
+        # 툴팁 추가
+        self.detect_changes_btn.setToolTip(
+            "두 이미지 간의 픽셀 차이를 보라색으로 표시합니다. 양쪽에 동일한 변화 후 이미지가 보여집니다."
+        )
+        self.reset_images_btn.setToolTip(
+            "변화 감지 모드를 해제하고 원래 이미지 상태로 돌아갑니다."
+        )
+
+        # 버튼 크기 조정
+        self.detect_changes_btn.setMinimumHeight(30)
+        self.reset_images_btn.setMinimumHeight(30)
 
         V_Tool.addWidget(self.class_input_label)
         V_Tool.addWidget(self.class_input)
@@ -811,6 +928,211 @@ class change_detection(QMainWindow):
         self.showMaximized()
         self.set_list()
 
+    def update_threshold_value(self, value):
+        """
+        임계값 슬라이더 값 변경 시 호출되는 함수
+        """
+        self.change_threshold = value
+        self.threshold_value_label.setText(f"{value}")
+
+    def detect_pixel_changes(self):
+        """
+        두 이미지 간의 픽셀 변화를 감지하여 보라색으로 표시합니다.
+        변화 전/후 이미지 모두 변화 후 이미지를 보여주고, 변화된 부분만 보라색으로 강조합니다.
+        """
+        try:
+            if not self.selected_a_image_path or not self.selected_b_image_path:
+                QMessageBox.information(self, "경고", "이미지가 선택되지 않았습니다.")
+                return
+
+            # 변화 전 이미지 로드
+            img_array_a = np.fromfile(self.selected_a_image_path, np.uint8)
+            img_a = cv2.imdecode(img_array_a, cv2.IMREAD_COLOR)
+
+            # 변화 후 이미지 로드
+            img_array_b = np.fromfile(self.selected_b_image_path, np.uint8)
+            img_b = cv2.imdecode(img_array_b, cv2.IMREAD_COLOR)
+
+            if img_a is None or img_b is None:
+                QMessageBox.warning(self, "오류", "이미지 로드에 실패했습니다.")
+                return
+
+            # 이미지 크기가 다른 경우 크기 맞추기
+            if img_a.shape != img_b.shape:
+                img_b = cv2.resize(img_b, (img_a.shape[1], img_a.shape[0]))
+
+            # 이미지 간의 차이 계산
+            diff = cv2.absdiff(img_a, img_b)
+
+            # 특정 임계값보다 큰 변화만 감지하기 위한 임계값 설정
+            threshold = self.change_threshold
+
+            # 각 채널에서 임계값보다 큰 차이가 있는지 확인
+            mask = np.any(diff > threshold, axis=2).astype(np.uint8) * 255
+
+            # 노이즈 제거를 위한 모폴로지 연산 적용
+            kernel = np.ones((3, 3), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+            # 변화가 감지된 마스크 저장
+            self.change_mask = mask.copy()
+
+            # 변화 후 이미지에 보라색으로 변화 표시
+            img_b_with_changes = img_b.copy()
+            img_b_with_changes[mask > 0] = (180, 0, 180)  # 보라색 (BGR)
+
+            # 이미지를 화면에 표시하기 위해 RGB로 변환
+            img_b_with_changes = cv2.cvtColor(img_b_with_changes, cv2.COLOR_BGR2RGB)
+
+            # 이미지 크기 정보
+            height, width, channel = img_b_with_changes.shape
+            bytesPerLine = 3 * width
+
+            # 변화가 표시된 이미지를 QImage로 변환 (양쪽 모두 같은 이미지)
+            qimg = QImage(
+                img_b_with_changes, width, height, bytesPerLine, QImage.Format_RGB888
+            )
+
+            # QImage를 QPixmap으로 변환하여 화면에 표시 (양쪽 모두 변화 후 이미지 + 변화 표시)
+            result_pixmap = QPixmap(qimg)
+
+            # 원본 이미지 저장 (복원용)
+            if not hasattr(self, "original_before_img"):
+                self.original_before_img = self.before_box.img.copy()
+                self.original_after_img = self.after_box.img.copy()
+
+            # 양쪽 이미지 박스에 변화 감지 이미지 설정
+            self.before_box.img = result_pixmap
+            self.after_box.img = result_pixmap
+
+            # 변화 감지 모드 활성화 플래그 설정
+            self.change_detection_active = True
+
+            # 이미지 업데이트
+            self.before_box.repaint()
+            self.after_box.repaint()
+
+            QMessageBox.information(
+                self,
+                "픽셀 변화 감지",
+                "이미지 간 변화가 보라색으로 표시되었습니다. 양쪽 화면에 '변화 후' 이미지가 표시됩니다.",
+            )
+
+        except Exception as e:
+            print(f"detect_pixel_changes 오류: {e}")
+            QMessageBox.warning(self, "오류", f"픽셀 변화 감지 실패: {e}")
+
+    def reset_images(self):
+        """
+        변화 감지 모드를 해제하고 원본 이미지로 돌아갑니다.
+        """
+        try:
+            if (
+                hasattr(self, "change_detection_active")
+                and self.change_detection_active
+            ):
+                # 저장된 원본 이미지가 있으면 복원
+                if hasattr(self, "original_before_img") and hasattr(
+                    self, "original_after_img"
+                ):
+                    # 원본 이미지 복원
+                    self.before_box.img = self.original_before_img
+                    self.after_box.img = self.original_after_img
+
+                    # 변수 정리
+                    delattr(self, "original_before_img")
+                    delattr(self, "original_after_img")
+                else:
+                    # 저장된 원본 이미지가 없으면 경로에서 다시 로드
+                    self.before_box.set_image()
+                    self.after_box.set_image()
+
+                # 변화 감지 모드 비활성화
+                self.change_detection_active = False
+                self.change_mask = None
+
+                # 이미지 업데이트
+                self.before_box.repaint()
+                self.after_box.repaint()
+
+                QMessageBox.information(
+                    self, "원본 복원", "원본 이미지로 복원되었습니다."
+                )
+
+        except Exception as e:
+            print(f"reset_images 오류: {e}")
+            QMessageBox.warning(self, "오류", f"이미지 초기화 실패: {e}")
+
+        """
+        변화 없음 라벨을 저장하는 메서드
+        binary_cd 및 semantic_cd 폴더에 검정색 이미지를 저장합니다.
+        변화 감지 마스크가 있는 경우 해당 영역은 제외합니다.
+        """
+        try:
+            if not self.selected_a_image_path or not self.selected_b_image_path:
+                QMessageBox.information(
+                    self, "경고", "저장할 이미지가 선택되지 않았습니다."
+                )
+                return
+
+            # 'binary_cd'와 'semantic_cd' 폴더 생성
+            current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            binary_dir = os.path.join(current_dir, "binary_cd")
+            semantic_dir = os.path.join(current_dir, "semantic_cd")
+
+            if not os.path.exists(binary_dir):
+                os.makedirs(binary_dir)
+            if not os.path.exists(semantic_dir):
+                os.makedirs(semantic_dir)
+
+            # before와 after 이미지 모두 처리
+            image_paths = [self.selected_a_image_path, self.selected_b_image_path]
+
+            for image_path in image_paths:
+                # 원본 이미지 로드하여 크기 얻기
+                img_array = np.fromfile(image_path, np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                if img is None:
+                    print(f"이미지 로드 실패: {image_path}")
+                    continue
+
+                height, width = img.shape[:2]
+
+                # 검은색 이미지 생성 (RGB 값을 0으로 설정)
+                black_image = np.zeros((height, width, 3), dtype=np.uint8)
+
+                # 변화 감지 마스크가 있는 경우 해당 영역 제외
+                if hasattr(self, "change_mask") and self.change_mask is not None:
+                    # 변화 마스크 크기 조정
+                    if self.change_mask.shape[:2] != (height, width):
+                        change_mask_resized = cv2.resize(
+                            self.change_mask, (width, height)
+                        )
+                    else:
+                        change_mask_resized = self.change_mask
+
+                    # 변화 감지 영역은 저장하지 않음 (이미 검은색이므로 추가 처리 필요 없음)
+                    # 필요하다면 여기에 특별한 표시 코드를 추가할 수 있음
+
+                # 파일명 준비
+                (filepath, filename) = os.path.split(image_path)
+                base_filename = os.path.splitext(filename)[0]
+
+                # 이미지 저장
+                binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
+                semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
+
+                cv2.imwrite(binary_filename, black_image)
+                cv2.imwrite(semantic_filename, black_image)
+
+            QMessageBox.information(
+                self, "저장", "변화 없음 라벨이 성공적으로 저장되었습니다."
+            )
+        except Exception as e:
+            print(f"save_no_change 오류: {e}")
+            QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
+
     def save_no_change(self):
         """
         변화 없음 라벨을 저장하는 메서드
@@ -820,20 +1142,20 @@ class change_detection(QMainWindow):
             if not self.selected_a_image_path or not self.selected_b_image_path:
                 QMessageBox.information(self, "경고", "저장할 이미지가 선택되지 않았습니다.")
                 return
-                
+
             # 'binary_cd'와 'semantic_cd' 폴더 생성
             current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             binary_dir = os.path.join(current_dir, 'binary_cd')
             semantic_dir = os.path.join(current_dir, 'semantic_cd')
-            
+
             if not os.path.exists(binary_dir):
                 os.makedirs(binary_dir)
             if not os.path.exists(semantic_dir):
                 os.makedirs(semantic_dir)
-            
+
             # before와 after 이미지 모두 처리
             image_paths = [self.selected_a_image_path, self.selected_b_image_path]
-            
+
             for image_path in image_paths:
                 # 원본 이미지 로드하여 크기 얻기
                 img_array = np.fromfile(image_path, np.uint8)
@@ -841,20 +1163,20 @@ class change_detection(QMainWindow):
                 if img is None:
                     print(f"이미지 로드 실패: {image_path}")
                     continue
-                    
+
                 height, width = img.shape[:2]
-                
+
                 # 검은색 이미지 생성 (RGB 값을 0으로 설정)
                 black_image = np.zeros((height, width, 3), dtype=np.uint8)
-                
+
                 # 파일명 준비
                 (filepath, filename) = os.path.split(image_path)
                 base_filename = os.path.splitext(filename)[0]
-                
+
                 # 이미지 저장
                 binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
                 semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
-                
+
                 cv2.imwrite(binary_filename, black_image)
                 cv2.imwrite(semantic_filename, black_image)
 
@@ -862,6 +1184,7 @@ class change_detection(QMainWindow):
         except Exception as e:
             print(f"save_no_change 오류: {e}")
             QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_W:
             # 자동 포인트 지정 기능 토글
@@ -935,7 +1258,7 @@ class change_detection(QMainWindow):
     def handle_single_click(self):
         # 단일 클릭 시 폴리곤을 강조 표시
         self.select_polygon(self.click_index, double_click=False)
-        
+
     def handle_double_click(self, index):
         # 더블 클릭 시 폴리곤 클래스 입력 창 표시
         self.click_timer.stop()  # 단일 클릭 타이머 취소
@@ -1061,11 +1384,11 @@ class change_detection(QMainWindow):
                 # 새로운 이미지 경로 설정
                 self.selected_a_image_path = self.temp_listA[index]
                 self.selected_b_image_path = self.temp_listB[index]
-                
+
                 # 변화 전 이미지(Before) 설정
                 self.before_box.path = self.selected_a_image_path
                 self.before_box.set_image()
-                
+
                 # 변화 후 이미지(After) 설정
                 self.after_box.path = self.selected_b_image_path
                 self.after_box.set_image()
@@ -1079,6 +1402,10 @@ class change_detection(QMainWindow):
                     self.after_box.poly_list = self.before_box.poly_list  # 두 이미지가 동일한 폴리곤 리스트 공유
                     self.load_labels_from_file()
 
+                # 변화 감지 모드 초기화
+                self.change_detection_active = False
+                self.change_mask = None
+
                 self.before_box.repaint()
                 self.after_box.repaint()
                 self.set_list()
@@ -1089,6 +1416,123 @@ class change_detection(QMainWindow):
             QMessageBox.warning(self, "오류", f"이미지 로드 실패: {e}")
 
     def openimage(self, flag):
+        try:
+            if self.before_box.path:
+                self.image_labels[self.before_box.path] = (
+                    self.before_box.poly_list.copy()
+                )
+            self.undo_stack.clear()
+            self.redo_stack.clear()
+
+            # 폴더 선택
+            folder_path = QFileDialog.getExistingDirectory(self, "폴더 선택", "")
+            if not folder_path:
+                return
+
+            # 이미지 파일 확장자 필터링
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp")
+            image_files = sorted(
+                [
+                    os.path.join(folder_path, f)
+                    for f in os.listdir(folder_path)
+                    if f.lower().endswith(image_extensions)
+                ]
+            )
+
+            if flag == "A":
+                self.temp_listA = image_files
+            else:
+                self.temp_listB = image_files
+
+            self.set_list()
+
+            # 변화 전/후 이미지 수 확인 후 첫 쌍 불러오기
+            if self.temp_listA and self.temp_listB:
+                if len(self.temp_listA) != len(self.temp_listB):
+                    QMessageBox.warning(
+                        self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다."
+                    )
+                else:
+                    self.selected_a_image_path = self.temp_listA[0]
+                    self.selected_b_image_path = self.temp_listB[0]
+                    self.before_box.path = self.selected_a_image_path
+                    self.after_box.path = self.selected_b_image_path
+                    self.before_box.set_image()
+                    self.after_box.set_image()
+                    if self.before_box.path in self.image_labels:
+                        self.before_box.poly_list = self.image_labels[
+                            self.before_box.path
+                        ].copy()
+                        self.after_box.poly_list = self.before_box.poly_list
+                    else:
+                        self.before_box.poly_list = []
+                        self.after_box.poly_list = self.before_box.poly_list
+                        self.load_labels_from_file()
+                    self.before_box.repaint()
+                    self.after_box.repaint()
+                    self.set_list()
+        except Exception as e:
+            print(f"openimage 오류: {e}")
+            QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
+        try:
+            if self.before_box.path:
+                self.image_labels[self.before_box.path] = (
+                    self.before_box.poly_list.copy()
+                )
+            self.undo_stack.clear()
+            self.redo_stack.clear()
+
+            # 폴더 선택
+            folder_path = QFileDialog.getExistingDirectory(self, "폴더 선택", "")
+            if not folder_path:
+                return
+
+            # 이미지 파일 확장자 필터링
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp")
+            image_files = sorted(
+                [
+                    os.path.join(folder_path, f)
+                    for f in os.listdir(folder_path)
+                    if f.lower().endswith(image_extensions)
+                ]
+            )
+
+            if flag == "A":
+                self.temp_listA = image_files
+            else:
+                self.temp_listB = image_files
+
+            self.set_list()
+
+            # 변화 전/후 이미지 수 확인 후 첫 쌍 불러오기
+            if self.temp_listA and self.temp_listB:
+                if len(self.temp_listA) != len(self.temp_listB):
+                    QMessageBox.warning(
+                        self, "오류", "변화 전 이미지와 변화 후 이미지의 수가 다릅니다."
+                    )
+                else:
+                    self.selected_a_image_path = self.temp_listA[0]
+                    self.selected_b_image_path = self.temp_listB[0]
+                    self.before_box.path = self.selected_a_image_path
+                    self.after_box.path = self.selected_b_image_path
+                    self.before_box.set_image()
+                    self.after_box.set_image()
+                    if self.before_box.path in self.image_labels:
+                        self.before_box.poly_list = self.image_labels[
+                            self.before_box.path
+                        ].copy()
+                        self.after_box.poly_list = self.before_box.poly_list
+                    else:
+                        self.before_box.poly_list = []
+                        self.after_box.poly_list = self.before_box.poly_list
+                        self.load_labels_from_file()
+                    self.before_box.repaint()
+                    self.after_box.repaint()
+                    self.set_list()
+        except Exception as e:
+            print(f"openimage 오류: {e}")
+            QMessageBox.warning(self, "오류", f"이미지 열기 실패: {e}")
+
         try:
             # 현재 라벨 저장
             if self.before_box.path:
@@ -1111,15 +1555,15 @@ class change_detection(QMainWindow):
                     # 첫 번째 이미지 쌍 로드
                     self.selected_a_image_path = self.temp_listA[0]
                     self.selected_b_image_path = self.temp_listB[0]
-                    
+
                     # 변화 전 이미지 설정
                     self.before_box.path = self.selected_a_image_path
                     self.before_box.set_image()
-                    
+
                     # 변화 후 이미지 설정
                     self.after_box.path = self.selected_b_image_path
                     self.after_box.set_image()
-                    
+
                     # 라벨 로드
                     if self.before_box.path in self.image_labels:
                         self.before_box.poly_list = self.image_labels[self.before_box.path].copy()
@@ -1128,7 +1572,7 @@ class change_detection(QMainWindow):
                         self.before_box.poly_list = []
                         self.after_box.poly_list = self.before_box.poly_list
                         self.load_labels_from_file()
-                    
+
                     self.before_box.repaint()
                     self.after_box.repaint()
                     self.set_list()
@@ -1141,58 +1585,58 @@ class change_detection(QMainWindow):
             if not self.image_labels:
                 QMessageBox.information(self, "경고", "저장할 레이블이 없습니다.")
                 return
-                
+
             # 'binary_cd'와 'semantic_cd' 폴더 생성
             current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             binary_dir = os.path.join(current_dir, 'binary_cd')
             semantic_dir = os.path.join(current_dir, 'semantic_cd')
-            
+
             if not os.path.exists(binary_dir):
                 os.makedirs(binary_dir)
             if not os.path.exists(semantic_dir):
                 os.makedirs(semantic_dir)
-                
+
             for image_path in self.image_labels.keys():
                 poly_list = self.image_labels.get(image_path, [])
                 if not poly_list:
                     continue
-                    
+
                 # 원본 이미지 로드
                 img_array = np.fromfile(image_path, np.uint8)
                 img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 if img is None:
                     print(f"이미지 로드 실패: {image_path}")
                     continue
-                    
+
                 height, width = img.shape[:2]
-                
+
                 # 바이너리 CD 이미지 생성 (흰색 폴리곤)
                 binary_mask = np.zeros((height, width), dtype=np.uint8)
-                
+
                 # 시맨틱 CD 이미지 생성 (클래스별 색상)
                 semantic_mask = np.zeros((height, width, 3), dtype=np.uint8)
-                
+
                 # 검은색 배경 생성 (RGB 값을 0으로 설정)
                 binary_result = np.zeros((height, width, 3), dtype=np.uint8)
                 semantic_result = np.zeros((height, width, 3), dtype=np.uint8)
-                
+
                 # 각 폴리곤 그리기
                 for poly_dict in poly_list:
                     points = poly_dict['points']
                     class_number = poly_dict['class']
-                    
+
                     if len(points) < 4 or len(points) % 2 != 0:
                         continue
-                        
+
                     # 폴리곤 포인트 변환
                     polygon_points = []
                     for i in range(0, len(points), 2):
                         polygon_points.append([int(points[i]), int(points[i+1])])
                     polygon_points = np.array([polygon_points], dtype=np.int32)
-                    
+
                     # 바이너리 마스크에 폴리곤 채우기 (흰색)
                     cv2.fillPoly(binary_mask, polygon_points, 255)
-                    
+
                     # 시맨틱 마스크에 클래스별 색상으로 폴리곤 채우기
                     if class_number == 1:  # 사람 - 노란색
                         color = (0, 255, 255)  # BGR
@@ -1208,24 +1652,44 @@ class change_detection(QMainWindow):
                         color = (0, 128, 0)
                     else:
                         color = (0, 0, 0)
-                    
+
                     cv2.fillPoly(semantic_mask, polygon_points, color)
-                
+
+                # 변화 감지 마스크 생성 - 폴리곤 외부 영역에만 적용
+                change_mask_outside_polygons = None
+                if hasattr(self, "change_mask") and self.change_mask is not None:
+                    # 변화 마스크 크기 조정
+                    if self.change_mask.shape[:2] != (height, width):
+                        change_mask_resized = cv2.resize(
+                            self.change_mask, (width, height)
+                        )
+                    else:
+                        change_mask_resized = self.change_mask
+
+                    # 폴리곤 외부 영역에만 변화 감지 마스크 적용
+                    change_mask_outside_polygons = change_mask_resized.copy()
+                    change_mask_outside_polygons[binary_mask == 255] = (
+                        0  # 폴리곤 내부는 제외
+                    )
+
                 # 바이너리 이미지 저장 (폴리곤 영역만 흰색, 나머지는 검은색)
                 binary_result[binary_mask == 255] = (255, 255, 255)  # 흰색으로 표시
-                
+
                 # 시맨틱 이미지 저장 (폴리곤 영역만 컬러, 나머지는 검은색)
-                mask = (semantic_mask > 0).any(axis=2)
-                semantic_result[mask] = semantic_mask[mask]
-                
+                semantic_result = np.zeros_like(semantic_mask)  # 결과를 0으로 초기화
+
+                # 폴리곤 영역을 그대로 추가
+                mask_polygons = (semantic_mask > 0).any(axis=2)
+                semantic_result[mask_polygons] = semantic_mask[mask_polygons]
+
                 # 파일명 준비
                 (filepath, filename) = os.path.split(image_path)
                 base_filename = os.path.splitext(filename)[0]
-                
+
                 # 이미지 저장
                 binary_filename = os.path.join(binary_dir, f"{base_filename}.jpg")
                 semantic_filename = os.path.join(semantic_dir, f"{base_filename}.jpg")
-                
+
                 cv2.imwrite(binary_filename, binary_result)
                 cv2.imwrite(semantic_filename, semantic_result)
 
@@ -1245,7 +1709,7 @@ class change_detection(QMainWindow):
             self.before_box.poly_list = []
             self.after_box.poly_list = self.before_box.poly_list  # 페어 이미지와 공유
             self.image_labels[self.before_box.path] = self.before_box.poly_list
-            
+
         except Exception as e:
             print(f"라벨 초기화 오류: {e}")
             QMessageBox.warning(self, "오류", f"라벨 초기화 중 오류가 발생했습니다: {e}")
@@ -1270,7 +1734,7 @@ class change_detection(QMainWindow):
                     5: "불",
                     6: "나무"
                 }.get(class_number, f"알 수 없음({class_number})")
-                
+
                 poly_info.append(f"{class_name}: {points}")
 
             # Base Image와 Temporary B 리스트 굵게 표시 적용
