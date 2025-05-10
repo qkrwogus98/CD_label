@@ -35,6 +35,36 @@ from PyQt5.QtGui import QStandardItemModel, QStandardItem
 import webbrowser
 from PyQt5.QtWidgets import QInputDialog
 from PyQt5.QtCore import QTimer
+from collections import defaultdict
+
+
+def save_label_statistics(image_labels, output_dir):
+    label_to_files = defaultdict(set)
+
+    for image_path, poly_list in image_labels.items():
+        used_classes = set(poly["class"] for poly in poly_list)
+        for cls in used_classes:
+            class_name = {1: "사람", 2: "돌", 3: "흙", 4: "물", 5: "불", 6: "나무"}.get(
+                cls
+            )
+            if class_name:
+                label_to_files[class_name].add(os.path.basename(image_path))
+
+    os.makedirs(output_dir, exist_ok=True)
+    for label, files in label_to_files.items():
+        with open(os.path.join(output_dir, f"{label}.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(files)))
+
+
+def append_no_change_file(output_dir, selected_a_image_path, selected_b_image_path):
+    os.makedirs(output_dir, exist_ok=True)
+    no_change_file_list = [
+        os.path.basename(selected_a_image_path),
+        os.path.basename(selected_b_image_path),
+    ]
+    with open(os.path.join(output_dir, "변화없음.txt"), "a", encoding="utf-8") as f:
+        f.write("\n".join(no_change_file_list) + "\n")
+
 
 # 전역 예외 처리기
 def exception_hook(exctype, value, tb):
@@ -1181,6 +1211,11 @@ class change_detection(QMainWindow):
                 cv2.imwrite(semantic_filename, black_image)
 
             QMessageBox.information(self, "저장", "변화 없음 라벨이 성공적으로 저장되었습니다.")
+            append_no_change_file(
+                os.path.join(current_dir, "label_stats"),
+                self.selected_a_image_path,
+                self.selected_b_image_path,
+            )
         except Exception as e:
             print(f"save_no_change 오류: {e}")
             QMessageBox.warning(self, "오류", f"변화 없음 라벨 저장 실패: {e}")
@@ -1694,6 +1729,9 @@ class change_detection(QMainWindow):
                 cv2.imwrite(semantic_filename, semantic_result)
 
             QMessageBox.information(self, "저장", "성공적으로 저장되었습니다.")
+            save_label_statistics(
+                self.image_labels, os.path.join(current_dir, "label_stats")
+            )
             self.set_list()
         except Exception as e:
             print(f"savepoint 오류: {e}")
