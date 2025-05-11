@@ -53,6 +53,9 @@
 3091.png
 3092.png
 3520.png
+3768.png
+3769.png
+3772.png
 42.png
 511.png
 512.png
