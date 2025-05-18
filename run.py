@@ -60,9 +60,22 @@ def save_label_statistics(image_labels, output_dir):
                 label_to_files[class_name].add(os.path.basename(image_path))
 
     os.makedirs(output_dir, exist_ok=True)
+
     for label, files in label_to_files.items():
-        with open(os.path.join(output_dir, f"{label}.txt"), "w", encoding="utf-8") as f:
-            f.write("\n".join(sorted(files)))
+        txt_path = os.path.join(output_dir, f"{label}.txt")
+        existing_files = set()
+
+        # 기존 파일이 있다면 읽기
+        if os.path.exists(txt_path):
+            with open(txt_path, "r", encoding="utf-8") as f:
+                existing_files = set(line.strip() for line in f.readlines())
+
+        # 새 파일 목록 추가
+        all_files = existing_files.union(files)
+
+        # 다시 저장
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(all_files)))
 
 
 def append_no_change_file(output_dir, selected_a_image_path, selected_b_image_path):
