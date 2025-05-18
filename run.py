@@ -1713,13 +1713,31 @@ class change_detection(QMainWindow):
         return model
 
     def closeEvent(self, event):
-        reply = QMessageBox.question(self, '종료', '정말 종료하시겠습니까?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(
+            self,
+            "종료",
+            "정말 종료하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
         if reply == QMessageBox.Yes:
             if self.auto_adding_points:
                 self.auto_add_timer.stop()
+
+            # 저장 경로 설정
+            current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            label_stat_dir = os.path.join(current_dir, "label_stats")
+
+            try:
+                # 현재까지의 라벨 저장
+                save_label_statistics(self.image_labels, label_stat_dir)
+            except Exception as e:
+                print(f"종료 시 라벨 통계 저장 오류: {e}")
+
             event.accept()
         else:
             event.ignore()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
