@@ -80,12 +80,25 @@ def save_label_statistics(image_labels, output_dir):
 
 def append_no_change_file(output_dir, selected_a_image_path, selected_b_image_path):
     os.makedirs(output_dir, exist_ok=True)
-    no_change_file_list = [
-        os.path.basename(selected_a_image_path),
-        os.path.basename(selected_b_image_path),
-    ]
-    with open(os.path.join(output_dir, "변화없음.txt"), "a", encoding="utf-8") as f:
-        f.write("\n".join(no_change_file_list) + "\n")
+    no_change_file = os.path.join(output_dir, "변화없음.txt")
+
+    filename = os.path.basename(selected_a_image_path)
+
+    # 파일명이 같은지 확인
+    if filename != os.path.basename(selected_b_image_path):
+        print("[경고] before와 after 파일명이 다릅니다. 저장 안 함.")
+        return
+
+    # 중복 저장 방지
+    if os.path.exists(no_change_file):
+        with open(no_change_file, "r", encoding="utf-8") as f:
+            existing = set(line.strip() for line in f.readlines())
+            if filename in existing:
+                return
+
+    # 한 줄만 저장
+    with open(no_change_file, "a", encoding="utf-8") as f:
+        f.write(filename + "\n")
 
 
 # 전역 예외 처리기
