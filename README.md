@@ -8,7 +8,7 @@ cd CD_label
 2. 파이썬 환경 만들기
 
 `
-conda create -n cdlabel python=3.12
+conda create -n cdlabel python=3.10
 `
 
 `
