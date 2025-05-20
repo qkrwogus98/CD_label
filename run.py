@@ -1426,23 +1426,32 @@ class change_detection(QMainWindow):
             self.redo_stack.clear()
 
             # 폴더 선택
-            folder_path = QFileDialog.getExistingDirectory(self, "폴더 선택", "")
-            if not folder_path:
+            file_path, _ = QFileDialog.getOpenFileName(self, "이미지 선택", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+            if not file_path:
                 return
+            
+            folder_path = os.path.dirname(file_path)
 
-            # 이미지 파일 확장자 필터링
-            image_extensions = (".png", ".jpg", ".jpeg", ".bmp")
-            image_files = [
+            # 폴더 내 모든 이미지 파일 정렬
+            all_images = [
                 os.path.join(folder_path, f)
                 for f in os.listdir(folder_path)
-                if f.lower().endswith(image_extensions)
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp"))
             ]
-            image_files.sort(key=lambda x: natural_key(os.path.basename(x)))
+            all_images.sort(key=lambda x: natural_key(os.path.basename(x)))
+
+            # 선택된 이미지부터 뒤로 100장
+            try:
+                start_index = all_images.index(file_path)
+                subset_images = all_images[start_index:start_index + 100]
+            except ValueError:
+                QMessageBox.warning(self, "오류", "선택한 파일이 폴더 내에 존재하지 않습니다.")
+                return
 
             if flag == "A":
-                self.temp_listA = image_files
+                self.temp_listA = subset_images
             else:
-                self.temp_listB = image_files
+                self.temp_listB = subset_images
 
             self.set_list()
 
