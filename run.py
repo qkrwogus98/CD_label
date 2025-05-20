@@ -1427,9 +1427,12 @@ class change_detection(QMainWindow):
             ]
             all_images.sort(key=lambda x: natural_key(os.path.basename(x)))
 
+            normalized_images = [os.path.normcase(os.path.abspath(p)) for p in all_images]
+            normalized_selected = os.path.normcase(os.path.abspath(file_path))
+
             # 선택된 이미지부터 뒤로 100장
             try:
-                start_index = all_images.index(file_path)
+                start_index = normalized_images.index(normalized_selected)
                 subset_images = all_images[start_index:start_index + 100]
             except ValueError:
                 QMessageBox.warning(self, "오류", "선택한 파일이 폴더 내에 존재하지 않습니다.")
