@@ -254,7 +254,7 @@ class ImageBox(QWidget):
                 if poly.containsPoint(click_pos, Qt.OddEvenFill):
                     # 클래스 입력 대화상자 열기
                     class_number, ok = QInputDialog.getInt(self, "클래스 수정", "새 클래스 번호 입력 (1~6):",
-                                                           value=poly_dict.get('class', self.current_class), min=1, max=6)
+                                                            value=poly_dict.get('class', self.current_class), min=1, max=6)
                     if ok:
                         # 현재 상태를 undo 스택에 저장
                         if self.bigbox:
@@ -522,13 +522,12 @@ class ImageBox(QWidget):
     def mouseMoveEvent(self, e):
         """
         마우스 이동 이벤트 처리
-        - 왼쪽 버튼 클릭 상태에서 이미지 이동
-        - 폴리곤 그리기 중일 때 현재 마우스 위치 업데이트 및  repaint
+        - 왼쪽 버튼 클릭 상태에서 이미지 이동 (자동 폴리곤 모드와 무관하게 그리기 중이 아니면 가능)
+        - 폴리곤 그리기 중일 때 현재 마우스 위치 업데이트 및 repaint
         """
         try:
-            # 이미지 이동 (자동 폴리곤 모드가 아닐 때 또는 그리기 중이 아닐 때)
-            is_auto_poly_mode = self.bigbox and self.bigbox.auto_polygon_mode
-            if self.is_left_clicked and not self.is_drawing and not is_auto_poly_mode:
+            # 이미지 이동: 왼쪽 버튼이 눌린 상태이고, 현재 폴리곤을 그리고 있지 않을 때
+            if self.is_left_clicked and not self.is_drawing:
                 self.end_pos = e.pos() - self.start_pos # 현재 위치와 시작 위치의 차이 계산
                 old_x, old_y = self.point.x(), self.point.y() # 이전 위치 저장
                 self.point = self.point + self.end_pos # 이미지 표시 시작점 업데이트
@@ -566,16 +565,18 @@ class ImageBox(QWidget):
         """마우스 버튼 누름 이벤트 처리"""
         if e.button() == Qt.LeftButton:
             self.setFocus() # 키보드 이벤트 수신을 위해 포커스 설정
+            polygon_created_successfully = False # 자동 폴리곤 생성 성공 여부 플래그
 
             # 자동 폴리곤 생성 모드 처리
             if self.bigbox and self.bigbox.auto_polygon_mode and self.bigbox.change_mask is not None:
                 # 변화 감지 마스크가 있는 경우에만 자동 생성 시도
-                self.try_auto_create_polygon(e.pos())
-                # 자동 폴리곤 모드에서는 일반적인 점 그리기나 이미지 이동을 막을 수 있음
-                # 여기서는 try_auto_create_polygon이 성공하면 is_drawing 등을 설정하지 않도록 함
-                return # 자동 폴리곤 생성 시도 후 종료
+                polygon_created_successfully = self.try_auto_create_polygon(e.pos())
+                # 자동 폴리곤이 성공적으로 생성되면, 일반적인 점 그리기나 이미지 이동을 막을 수 있음
+                if polygon_created_successfully:
+                    return # 자동 폴리곤 생성 성공 시 여기서 종료
 
-            # 일반 모드 또는 자동 폴리곤 조건 미충족 시 기존 로직 수행
+            # 자동 폴리곤 생성이 시도되지 않았거나 실패한 경우, 또는 일반 모드일 경우 기존 로직 수행
+            # (이미지 이동 또는 수동 폴리곤 그리기 시작을 위해)
             self.is_left_clicked = True
             self.start_pos = e.pos() # 클릭 시작 위치 저장 (이미지 이동 또는 점 추가용)
             self.is_moving = False # 클릭 시작 시에는 이동 중이 아님
@@ -583,14 +584,21 @@ class ImageBox(QWidget):
     def mouseReleaseEvent(self, e):
         """마우스 버튼 떼어짐 이벤트 처리"""
         try:
-            # 자동 폴리곤 모드에서는 Press에서 처리했으므로 Release에서 특별히 할 일 없음
+            # 자동 폴리곤 모드에서 Press에서 이미 처리하고 return 했다면 Release에서 특별히 할 일 없음
+            # 하지만, 자동 폴리곤 생성이 실패하고 드래그를 시작했을 수 있으므로, is_left_clicked는 False로 설정해야 함
             if self.bigbox and self.bigbox.auto_polygon_mode and self.bigbox.change_mask is not None and e.button() == Qt.LeftButton:
-                return
+                # try_auto_create_polygon이 True를 반환했다면 Press에서 이미 return 되었을 것임.
+                # False를 반환했거나, change_mask가 None이어서 Press에서 일반 로직으로 넘어왔다면 여기서 처리.
+                if self.is_left_clicked: # 드래그 중이었다면 (즉, 자동 폴리곤 생성 안 되고 드래그 시작)
+                    self.is_left_clicked = False
+                    self.is_moving = False # 이동 종료
+                return # 자동 폴리곤 모드에서는 수동 점 그리기 안 함 (이 라인은 try_auto_create_polygon이 false를 반환하고 드래그도 아닌 단순 클릭이었을 때 수동 점 그리기를 막음)
 
             if e.button() == Qt.LeftButton:
                 self.is_left_clicked = False
                 # 선 또는 점 기록 (이미지 이동 중이 아니었을 때만)
-                if not self.is_moving:
+                # 자동 폴리곤 모드가 아니고, 이미지 이동 중이 아닐 때만 수동 점 그리기
+                if not (self.bigbox and self.bigbox.auto_polygon_mode) and not self.is_moving:
                     # 클릭된 절대 위치(e.pos())를 상대 좌표로 변환하여 저장
                     relative_pos = self.get_relative_coor(e.pos())
 
@@ -620,85 +628,74 @@ class ImageBox(QWidget):
     def try_auto_create_polygon(self, click_pos_widget):
         """
         자동 폴리곤 모드에서 사용자가 클릭한 위치를 기반으로 폴리곤을 자동 생성 시도.
-        click_pos_widget: QPoint, 위젯 내 클릭된 절대 좌표.
+        클릭 지점 주변의 변화 영역을 확장하여 폴리곤을 생성합니다.
+        반환: True (성공), False (실패 또는 해당 없음)
         """
         print(f"자동 폴리곤 생성 시도: {click_pos_widget}")
-        if not self.bigbox or not self.bigbox.change_mask is not None:
-            print("자동 폴리곤 생성 실패: 변화 감지 마스크 없음.")
-            return
+        if not self.bigbox or self.bigbox.change_mask is None:
+            print("자동 폴리곤 생성 실패: 변화 감지 마스크 (self.bigbox.change_mask) 없음.")
+            return False
 
-        # 1. 클릭된 위젯 좌표를 원본 이미지 (change_mask) 기준으로 변환
-        #    get_relative_coor는 이미지 표시 영역 기준이므로, change_mask는 원본 이미지 전체 기준.
-        #    change_mask는 스케일링되지 않은 원본 이미지 크기.
-        #    클릭 좌표 (위젯 기준) -> 이미지 표시 영역 내 상대 좌표 -> 원본 이미지 기준 좌표
-        #    self.point: 이미지 표시 시작점 (위젯 기준)
-        #    self.scale: 현재 이미지 확대/축소 비율
-        #    change_mask_x = (click_pos_widget.x() - self.point.x()) / self.scale
-        #    change_mask_y = (click_pos_widget.y() - self.point.y()) / self.scale
-        #    click_pt_on_mask = (int(change_mask_x), int(change_mask_y))
-        click_pt_on_mask_qpoint = self.get_relative_coor(click_pos_widget) # 정수형 QPoint 반환
+        click_pt_on_mask_qpoint = self.get_relative_coor(click_pos_widget)
         click_pt_on_mask = (click_pt_on_mask_qpoint.x(), click_pt_on_mask_qpoint.y())
 
-
-        # change_mask의 크기 확인
         mask_h, mask_w = self.bigbox.change_mask.shape[:2]
         if not (0 <= click_pt_on_mask[0] < mask_w and 0 <= click_pt_on_mask[1] < mask_h):
             print("클릭 위치가 마스크 범위를 벗어났습니다.")
-            return
+            return False
 
-        # 2. 클릭된 위치가 change_mask에서 흰색(변화 감지된 영역)인지 확인
-        if self.bigbox.change_mask[click_pt_on_mask[1], click_pt_on_mask[0]] == 0: # 검은색이면
-            print("클릭 위치는 변화가 감지된 영역이 아닙니다.")
-            # 또는 가장 가까운 흰색 영역을 찾는 로직 추가 가능
-            return
+        # 클릭한 위치가 변화 감지 마스크(change_mask)에서 흰색(변화) 영역인지 먼저 확인
+        if self.bigbox.change_mask[click_pt_on_mask[1], click_pt_on_mask[0]] == 0:
+            print("클릭 위치는 원래 변화가 감지된 영역이 아닙니다.")
+            return False
 
-        # 3. OpenCV를 사용하여 change_mask에서 모든 contours 찾기
-        #    cv2.findContours는 원본 이미지를 변경하므로 복사본 사용
-        contours, hierarchy = cv2.findContours(self.bigbox.change_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        #    RETR_EXTERNAL: 가장 바깥쪽 외곽선만 찾음
-        #    CHAIN_APPROX_SIMPLE: 폴리곤 꼭지점 수를 줄여줌
+        # 1. 전체 변경 감지 마스크를 복사하여 사용
+        mask_to_process = self.bigbox.change_mask.copy()
 
-        if not contours:
-            print("마스크에서 contour를 찾지 못했습니다.")
-            return
+        # 2. 전체 마스크 확장 (dilate)
+        dilation_pixels = 5 # 반경 3픽셀 확장 (커널 크기 7x7) - 이 값을 조절하여 반경 변경
+                            # 예: 4픽셀 반경을 원하면 dilation_pixels = 4
+        kernel_size = 2 * dilation_pixels + 1
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        dilated_global_mask = cv2.dilate(mask_to_process, kernel, iterations=1)
 
-        # 4. 클릭된 점을 포함하는 contour 찾기
-        selected_contour = None
-        for contour in contours:
-            # cv2.pointPolygonTest: 점이 contour 내부에 있으면 양수, 외부에 음수, 경계에 0 반환
-            # 세 번째 인자 True: 내부/외부/경계까지의 거리 반환, False: +1, -1, 0 중 하나 반환
-            if cv2.pointPolygonTest(contour, (click_pt_on_mask[0], click_pt_on_mask[1]), False) >= 0:
-                selected_contour = contour
+        # 3. 확장된 전체 마스크에서 컨투어 찾기
+        contours_in_dilated_mask, _ = cv2.findContours(dilated_global_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if not contours_in_dilated_mask:
+            print("전역 확장된 마스크에서 contour를 찾지 못했습니다.")
+            return False
+
+        # 4. 확장된 컨투어들 중에서 클릭 지점을 포함하는 컨투어 선택
+        selected_merged_contour = None
+        min_area_threshold = 5  # 작은 노이즈 컨투어 무시
+        for contour in contours_in_dilated_mask:
+            if cv2.contourArea(contour) < min_area_threshold:
+                continue
+            if cv2.pointPolygonTest(contour, click_pt_on_mask, False) >= 0:
+                selected_merged_contour = contour
                 break
+        
+        if selected_merged_contour is None:
+            print("클릭 위치를 포함하는 contour를 확장된 마스크에서 찾지 못했습니다.")
+            return False
 
-        if selected_contour is None:
-            print("클릭 위치를 포함하는 contour를 찾지 못했습니다.")
-            return
+        # 5. 선택된 (병합 및 확장된) 컨투어를 폴리곤으로 변환
+        polygon_points_cv = selected_merged_contour.reshape(-1, 2)
 
-        # 5. (선택 사항) contour 단순화 (cv2.approxPolyDP)
-        #    epsilon 값은 contour 둘레의 일정 비율로 설정 가능
-        #    epsilon = 0.01 * cv2.arcLength(selected_contour, True)
-        #    approx_contour = cv2.approxPolyDP(selected_contour, epsilon, True)
-        #    polygon_points_cv = approx_contour.reshape(-1, 2) # (N, 1, 2) -> (N, 2) 형태로 변경
-        polygon_points_cv = selected_contour.reshape(-1, 2) # 단순화 없이 사용
-
-        # 6. contour 점들을 self.line 형식 (상대 좌표 [x1, y1, x2, y2...])으로 변환
-        #    contour 점들은 원본 이미지 기준이므로, ImageBox의 line도 원본 이미지 기준 상대 좌표.
         new_line = []
         for pt in polygon_points_cv:
-            new_line.append(float(pt[0])) # x 좌표
-            new_line.append(float(pt[1])) # y 좌표
+            new_line.append(float(pt[0]))
+            new_line.append(float(pt[1]))
 
         if len(new_line) < 6: # 최소 3개의 점 필요
             print("자동 생성된 폴리곤의 점 개수가 너무 적습니다.")
-            return
+            return False
 
-        # 7. 현재 line, poly_list 등에 추가하고 repaint
-        #    기존 그리기 로직과 유사하게 처리
         if self.bigbox:
-            self.bigbox.push_undo() # 작업 전 상태 저장
+            self.bigbox.push_undo()
 
-        self.line = new_line # 자동 생성된 라인으로 설정
+        self.line = new_line # 임시로 line에 할당 (update_line 로직과 호환 위함)
         # 바로 폴리곤으로 확정
         self.poly_list.append({'points': self.line.copy(), 'class': self.current_class})
         self.line = [] # 현재 라인 초기화
@@ -716,7 +713,8 @@ class ImageBox(QWidget):
         if self.pair_box:
             self.pair_box.repaint() # 페어 이미지도 업데이트
 
-        print("자동 폴리곤 생성 완료!")
+        print("확장 및 병합된 자동 폴리곤 생성 완료!")
+        return True
 
 
     def update_line(self, rel_pos=None, flag="draw"):
@@ -973,6 +971,7 @@ class change_detection(QMainWindow):
         self.temp_listA = [] # 변화 전(Before) 이미지 파일 경로 리스트
         self.temp_listB = [] # 변화 후(After) 이미지 파일 경로 리스트
         self.image_labels = {}  # 이미지 경로를 키로, 폴리곤 리스트를 값으로 저장하는 딕셔너리
+        # self.image_processing_status = {} # 이 버전에서는 사용하지 않음 (기존 코드 유지)
 
         # Undo 및 Redo 스택 (폴리곤 작업 전체에 대한 실행 취소/다시 실행)
         self.undo_stack = []
@@ -990,7 +989,7 @@ class change_detection(QMainWindow):
         self.original_after_img = None  # 변화 감지 전의 after 이미지 (복원용)
 
         # 자동 폴리곤 생성 모드
-        self.auto_polygon_mode = False
+        self.auto_polygon_mode = False # 기본값 False로 유지 (기존 코드)
 
 
         # 윈도우 크기 설정
@@ -1211,7 +1210,7 @@ class change_detection(QMainWindow):
         # 스플리터 설정
         H_Splitter = QSplitter(Qt.Horizontal)
         H_Splitter.addWidget(self.comparison_widget) # 왼쪽: 이미지 비교 뷰
-        H_Splitter.addWidget(right_panel_widget)    # 오른쪽: 파일 목록, 도구, 라벨 목록
+        H_Splitter.addWidget(right_panel_widget)     # 오른쪽: 파일 목록, 도구, 라벨 목록
         H_Splitter.setStretchFactor(0, 3) # 왼쪽 영역이 더 넓게
         H_Splitter.setStretchFactor(1, 1)
         H_Splitter.setSizes([int(self.width() * 0.7), int(self.width() * 0.3)]) # 초기 크기 비율 설정
@@ -1221,7 +1220,7 @@ class change_detection(QMainWindow):
         main_frame.setLayout(main_layout)
         self.setCentralWidget(main_frame)
 
-        self.setWindowTitle("변화 감지 라벨링 도구 (Ver 0.2.1 - 자동 폴리곤 구조 추가)") # 버전 정보 추가
+        self.setWindowTitle("변화 감지 라벨링 도구 (Ver 0.2.2 - 자동 폴리곤 개선)") # 버전 정보 수정
         self.setFocusPolicy(Qt.StrongFocus) # 메인 윈도우가 키보드 이벤트 우선 수신
         self.showMaximized() # 최대화된 상태로 시작
         self.set_list_models() # 초기 리스트 모델 설정
@@ -2056,12 +2055,12 @@ class change_detection(QMainWindow):
                     # 시맨틱 마스크에 클래스별 색상으로 폴리곤 채우기 (BGR 순서)
                     # ImageBox의 get_class_color는 QColor 반환, OpenCV용 BGR 값 필요
                     color_bgr = (0,0,0) # 기본 검정
-                    if class_number == 1: color_bgr = (0, 255, 255)  # 사람 - 노란색 (BGR)
+                    if class_number == 1: color_bgr = (0, 255, 255)   # 사람 - 노란색 (BGR)
                     elif class_number == 2: color_bgr = (128, 128, 128) # 돌 - 회색
-                    elif class_number == 3: color_bgr = (19, 69, 139)   # 흙 - 갈색
-                    elif class_number == 4: color_bgr = (255, 0, 0)     # 물 - 파란색
-                    elif class_number == 5: color_bgr = (0, 0, 255)     # 불 - 빨간색
-                    elif class_number == 6: color_bgr = (0, 128, 0)     # 나무 - 초록색
+                    elif class_number == 3: color_bgr = (19, 69, 139)    # 흙 - 갈색
+                    elif class_number == 4: color_bgr = (255, 0, 0)      # 물 - 파란색
+                    elif class_number == 5: color_bgr = (0, 0, 255)      # 불 - 빨간색
+                    elif class_number == 6: color_bgr = (0, 128, 0)      # 나무 - 초록색
                     cv2.fillPoly(semantic_mask_cv, np_poly_pts, color_bgr)
 
                 # 파일명 준비 ( 원본 이미지 파일명 기반)
