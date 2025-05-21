@@ -527,8 +527,7 @@ class ImageBox(QWidget):
         """
         try:
             # 이미지 이동 (자동 폴리곤 모드가 아닐 때 또는 그리기 중이 아닐 때)
-            is_auto_poly_mode = self.bigbox and self.bigbox.auto_polygon_mode
-            if self.is_left_clicked and not self.is_drawing and not is_auto_poly_mode:
+            if self.is_left_clicked and not self.is_drawing:
                 self.end_pos = e.pos() - self.start_pos # 현재 위치와 시작 위치의 차이 계산
                 old_x, old_y = self.point.x(), self.point.y() # 이전 위치 저장
                 self.point = self.point + self.end_pos # 이미지 표시 시작점 업데이트
@@ -566,16 +565,19 @@ class ImageBox(QWidget):
         """마우스 버튼 누름 이벤트 처리"""
         if e.button() == Qt.LeftButton:
             self.setFocus() # 키보드 이벤트 수신을 위해 포커스 설정
+            polygon_created_successfully = False # 자동 폴리곤 생성 성공 여부 플래그
 
             # 자동 폴리곤 생성 모드 처리
             if self.bigbox and self.bigbox.auto_polygon_mode and self.bigbox.change_mask is not None:
                 # 변화 감지 마스크가 있는 경우에만 자동 생성 시도
-                self.try_auto_create_polygon(e.pos())
-                # 자동 폴리곤 모드에서는 일반적인 점 그리기나 이미지 이동을 막을 수 있음
-                # 여기서는 try_auto_create_polygon이 성공하면 is_drawing 등을 설정하지 않도록 함
-                return # 자동 폴리곤 생성 시도 후 종료
+                polygon_created_successfully = self.try_auto_create_polygon(e.pos())
+                # 자동 폴리곤이 성공적으로 생성되면, 일반적인 점 그리기나 이미지 이동을 막을 수 있음
+                if polygon_created_successfully:
+                    return # 자동 폴리곤 생성 성공 시 여기서 종료
 
-            # 일반 모드 또는 자동 폴리곤 조건 미충족 시 기존 로직 수행
+            # 자동 폴리곤 생성이 시도되지 않았거나 실패한 경우, 또는 일반 모드일 경우 기존 로직 수행
+            # (이미지 이동 또는 수동 폴리곤 그리기 시작을 위해)
+
             self.is_left_clicked = True
             self.start_pos = e.pos() # 클릭 시작 위치 저장 (이미지 이동 또는 점 추가용)
             self.is_moving = False # 클릭 시작 시에는 이동 중이 아님
@@ -583,14 +585,24 @@ class ImageBox(QWidget):
     def mouseReleaseEvent(self, e):
         """마우스 버튼 떼어짐 이벤트 처리"""
         try:
-            # 자동 폴리곤 모드에서는 Press에서 처리했으므로 Release에서 특별히 할 일 없음
+            # 자동 폴리곤 모드에서 Press에서 이미 처리하고 return 했다면 Release에서 특별히 할 일 없음
+            # 하지만, 자동 폴리곤 생성이 실패하고 드래그를 시작했을 수 있으므로, is_left_clicked는 False로 설정해야 함
+
             if self.bigbox and self.bigbox.auto_polygon_mode and self.bigbox.change_mask is not None and e.button() == Qt.LeftButton:
-                return
+                # try_auto_create_polygon이 True를 반환했다면 Press에서 이미 return 되었을 것임.
+                # False를 반환했거나, change_mask가 None이어서 Press에서 일반 로직으로 넘어왔다면 여기서 처리.
+                if self.is_left_clicked: # 드래그 중이었다면 (즉, 자동 폴리곤 생성 안 되고 드래그 시작)
+                    self.is_left_clicked = False
+                    self.is_moving = False # 이동 종료
+                return # 자동 폴리곤 모드에서는 수동 점 그리기 안 함 (이 라인은 try_auto_create_polygon이 false를 반환하고 드래그도 아닌 단순 클릭이었을 때 수동 점 그리기를 막음)
+
 
             if e.button() == Qt.LeftButton:
                 self.is_left_clicked = False
                 # 선 또는 점 기록 (이미지 이동 중이 아니었을 때만)
-                if not self.is_moving:
+                # 자동 폴리곤 모드가 아니고, 이미지 이동 중이 아닐 때만 수동 점 그리기
+
+                if not (self.bigbox and self.bigbox.auto_polygon_mode) and not self.is_moving:
                     # 클릭된 절대 위치(e.pos())를 상대 좌표로 변환하여 저장
                     relative_pos = self.get_relative_coor(e.pos())
 
@@ -620,23 +632,14 @@ class ImageBox(QWidget):
     def try_auto_create_polygon(self, click_pos_widget):
         """
         자동 폴리곤 모드에서 사용자가 클릭한 위치를 기반으로 폴리곤을 자동 생성 시도.
-        click_pos_widget: QPoint, 위젯 내 클릭된 절대 좌표.
+        클릭 지점 주변의 변화 영역을 확장하여 폴리곤을 생성합니다.
+        반환: True (성공), False (실패 또는 해당 없음)
         """
         print(f"자동 폴리곤 생성 시도: {click_pos_widget}")
-        if not self.bigbox or not self.bigbox.change_mask is not None:
-            print("자동 폴리곤 생성 실패: 변화 감지 마스크 없음.")
-            return
-
-        # 1. 클릭된 위젯 좌표를 원본 이미지 (change_mask) 기준으로 변환
-        #    get_relative_coor는 이미지 표시 영역 기준이므로, change_mask는 원본 이미지 전체 기준.
-        #    change_mask는 스케일링되지 않은 원본 이미지 크기.
-        #    클릭 좌표 (위젯 기준) -> 이미지 표시 영역 내 상대 좌표 -> 원본 이미지 기준 좌표
-        #    self.point: 이미지 표시 시작점 (위젯 기준)
-        #    self.scale: 현재 이미지 확대/축소 비율
-        #    change_mask_x = (click_pos_widget.x() - self.point.x()) / self.scale
-        #    change_mask_y = (click_pos_widget.y() - self.point.y()) / self.scale
-        #    click_pt_on_mask = (int(change_mask_x), int(change_mask_y))
-        click_pt_on_mask_qpoint = self.get_relative_coor(click_pos_widget) # 정수형 QPoint 반환
+        if not self.bigbox or self.bigbox.change_mask is None:
+            print("자동 폴리곤 생성 실패: 변화 감지 마스크 (self.bigbox.change_mask) 없음.")
+            return False
+        click_pt_on_mask_qpoint = self.get_relative_coor(click_pos_widget)
         click_pt_on_mask = (click_pt_on_mask_qpoint.x(), click_pt_on_mask_qpoint.y())
 
 
