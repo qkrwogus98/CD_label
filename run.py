@@ -1915,13 +1915,12 @@ class change_detection(QMainWindow):
             print(f"on_file_list_selected 오류: {e}")
             QMessageBox.warning(self, "오류", f"이미지 쌍 로드 실패: {e}")
 
-
     def open_folder_dialog(self, list_type):
         """
-        특정 이미지를 선택하면 해당 이미지부터 아래 100개 파일만 temp_listA / temp_listB에 할당합니다.
+        특정 이미지를 선택하면 해당 이미지부터 아래 100개 파일만 temp_listA / temp_listB에 절대경로로 할당합니다.
         """
         try:
-            # 기존에 작업 중이던 라벨 저장
+            # 기존 작업 중이던 라벨 저장
             if self.before_box.path and self.before_box.poly_list:
                 self.image_labels[self.before_box.path] = [p.copy() for p in self.before_box.poly_list]
 
@@ -1935,10 +1934,15 @@ class change_detection(QMainWindow):
             if not file_path:
                 return
 
+            # 절대경로로 변환
+            file_path = os.path.abspath(file_path)
+
             # 2) 선택한 파일이 있는 폴더에서 모든 이미지 수집 및 정렬
             folder_path = os.path.dirname(file_path)
+            folder_path = os.path.abspath(folder_path)
+
             all_images = [
-                os.path.join(folder_path, f)
+                os.path.abspath(os.path.join(folder_path, f))
                 for f in os.listdir(folder_path)
                 if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp"))
             ]
@@ -1970,15 +1974,11 @@ class change_detection(QMainWindow):
                     self.on_file_list_selected(first_index)
             else:
                 # 개수가 다르면 경고
-                if list_type == "A":
-                    countA = len(self.temp_listA)
-                    countB = len(self.temp_listB) if hasattr(self, 'temp_listB') else 0
-                else:
-                    countA = len(self.temp_listA) if hasattr(self, 'temp_listA') else 0
-                    countB = len(self.temp_listB)
+                countA = len(self.temp_listA) if hasattr(self, 'temp_listA') else 0
+                countB = len(self.temp_listB) if hasattr(self, 'temp_listB') else 0
                 QMessageBox.warning(
                     self, "경고",
-                    f"Before/B로더의 이미지 수가 다릅니다.\nBefore: {countA}개, After: {countB}개"
+                    f"Before/After 이미지 수가 다릅니다.\nBefore: {countA}개, After: {countB}개"
                 )
 
         except Exception as e:
